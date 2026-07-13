@@ -15,9 +15,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.gagmate.app.LocaleHelper
 import com.gagmate.app.ui.settings.SettingsViewModel.ConnectionStatus
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -30,10 +32,13 @@ fun SettingsScreen(
     val host by viewModel.host.collectAsState()
     val port by viewModel.port.collectAsState()
     val connectionStatus by viewModel.connectionStatus.collectAsState()
+    val currentLang by viewModel.currentLang.collectAsState()
+    val context = LocalContext.current
     val savedMessage by viewModel.savedMessage.collectAsState()
 
     LaunchedEffect(Unit) {
         viewModel.loadSettings()
+        viewModel.initLanguage(context)
     }
 
     Scaffold(
@@ -140,6 +145,39 @@ fun SettingsScreen(
                             modifier = Modifier.weight(1f)
                         ) {
                             Text(stringResource(R.string.settings_save_apply))
+                        }
+                    }
+                }
+            }
+
+            // Language section
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Language",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        viewModel.availableLanguages.forEach { lang ->
+                            FilterChip(
+                                selected = currentLang == lang.code,
+                                onClick = {
+                                    if (currentLang != lang.code) {
+                                        viewModel.setLanguage(context, lang.code)
+                                    }
+                                },
+                                label = { Text(lang.displayName) },
+                                modifier = Modifier.weight(1f)
+                            )
                         }
                     }
                 }

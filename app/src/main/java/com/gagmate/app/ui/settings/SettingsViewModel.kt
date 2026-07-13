@@ -1,9 +1,11 @@
 package com.gagmate.app.ui.settings
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.api.GgboardApiClient
+import com.gagmate.app.LocaleHelper
 import com.gagmate.app.data.repository.MachineRepository
 import com.gagmate.app.data.repository.SettingsRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -35,6 +37,27 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     enum class ConnectionStatus {
         Unknown, Testing, Connected, Failed
+    }
+
+    val availableLanguages = listOf(
+        LocaleInfo("", "System Default"),
+        LocaleInfo("en", "English"),
+        LocaleInfo("zh", "中文")
+    )
+
+    data class LocaleInfo(val code: String, val displayName: String)
+
+    private val _currentLang = MutableStateFlow("")
+    val currentLang: StateFlow<String> = _currentLang.asStateFlow()
+
+    fun setLanguage(context: Context, langCode: String) {
+        _currentLang.value = langCode
+        LocaleHelper.setLanguage(context, langCode)
+        (context as? android.app.Activity)?.recreate()
+    }
+
+    fun initLanguage(context: Context) {
+        _currentLang.value = LocaleHelper.getLanguageCode(context)
     }
 
     fun loadSettings() {

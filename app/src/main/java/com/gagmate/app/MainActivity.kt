@@ -1,5 +1,6 @@
 package com.gagmate.app
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,6 +13,10 @@ import com.gagmate.app.ui.navigation.AppNavigation
  * Sets up edge-to-edge rendering and initializes the Compose navigation.
  */
 class MainActivity : ComponentActivity() {
+
+    override fun attachBaseContext(newBase: Context) {
+        super.attachBaseContext(LocaleHelper.applyLanguage(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
