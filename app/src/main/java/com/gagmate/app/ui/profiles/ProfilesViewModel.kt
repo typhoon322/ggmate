@@ -59,7 +59,7 @@ class ProfilesViewModel : ViewModel() {
      * Import a profile from a JSON file URI.
      * Supports single profile objects and arrays of profiles.
      */
-    fun importProfileFromJson(context: Context, uri: Uri): ShotProfile? {
+    fun importProfileFromJson(context: Context, uri: Uri): Int {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri)
             val reader = BufferedReader(InputStreamReader(inputStream))
@@ -67,16 +67,17 @@ class ProfilesViewModel : ViewModel() {
             reader.close()
             inputStream?.close()
 
-            val profile = parseProfileJson(jsonText)
-            if (profile != null) {
-                // Add to local list and try to upload to machine
+            val profiles = parseProfilesJson(jsonText)
+            profiles.forEach { profile ->
+                val filename = "imported_${profile.name.take(20).replace(Regex("[^a-zA-Z0-9_-]"), "")}_${System.currentTimeMillis()}.json"
+                File(context.cacheDir, filename).writeText(gson.toJson(profile))
                 _profiles.value = _profiles.value + profile
                 uploadProfile(profile)
             }
-            profile
+            profiles.size
         } catch (e: Exception) {
             _error.value = "Failed to import profile: ${e.message}"
-            null
+            0
         }
     }
 
@@ -84,19 +85,19 @@ class ProfilesViewModel : ViewModel() {
      * Import a profile from a raw JSON string (paste).
      * Saves it to a temporary file in cache, then parses and imports.
      */
-    fun importProfileFromJsonString(context: Context, jsonText: String): ShotProfile? {
+    fun importProfileFromJsonString(context: Context, jsonText: String): Int {
         return try {
-            val profile = parseProfileJson(jsonText)
-            if (profile != null) {
-                val file = File(context.cacheDir, "pasted_profile_${System.currentTimeMillis()}.json")
-                file.writeText(jsonText)
+            val profiles = parseProfilesJson(jsonText)
+            profiles.forEach { profile ->
+                val filename = "pasted_${profile.name.take(20).replace(Regex("[^a-zA-Z0-9_-]"), "")}_${System.currentTimeMillis()}.json"
+                File(context.cacheDir, filename).writeText(gson.toJson(profile))
                 _profiles.value = _profiles.value + profile
                 uploadProfile(profile)
             }
-            profile
+            profiles.size
         } catch (e: Exception) {
             _error.value = "Failed to import pasted JSON: ${e.message}"
-            null
+            0
         }
     }
 
@@ -104,29 +105,75 @@ class ProfilesViewModel : ViewModel() {
      * Parse JSON string into a ShotProfile.
      * Handles both single profile objects and arrays.
      */
-    private fun parseProfileJson(jsonText: String): ShotProfile? {
+    private fun parseProfilesJson(jsonText: String): List<ShotProfile> {
         return try {
-            gson.fromJson(jsonText, ShotProfile::class.java)
+            // Single profile object
+            listOfNotNull(gson.fromJson(jsonText, ShotProfile::class.java))
         } catch (e: Exception) {
             try {
-                // Try as array
+                // Array of profiles
                 val listType = object : TypeToken<List<ShotProfile>>() {}.type
                 val profiles: List<ShotProfile> = gson.fromJson(jsonText, listType)
-                profiles.firstOrNull()
+                if (profiles.isNotEmpty()) profiles else throw Exception("Empty array")
             } catch (e2: Exception) {
-                // Try as a map with "profile" key
                 try {
+                    // Wrapped in "profile" or "profiles" key as single object
                     val mapType = object : TypeToken<Map<String, Any>>() {}.type
                     val map: Map<String, Any> = gson.fromJson(jsonText, mapType)
                     val profileObj = map["profile"] ?: map["profiles"]
                     if (profileObj != null) {
-                        gson.fromJson(gson.toJson(profileObj), ShotProfile::class.java)
-                    } else null
+                        // Could be a single wrapped profile or a list
+                        try {
+                            listOfNotNull(gson.fromJson(gson.toJson(profileObj), ShotProfile::class.java))
+                        } catch (e3: Exception) {
+                            try {
+                                val innerType = object : TypeToken<List<ShotProfile>>() {}.type
+                                gson.fromJson<List<ShotProfile>>(gson.toJson(profileObj), innerType)
+                            } catch (e4: Exception) {
+                                emptyList()
+                            }
+                        }
+                    } else emptyList()
+
                 } catch (e3: Exception) {
-                    null
+                    // Try concatenated JSON objects: {...}{...}
+                    try {
+                        val parts = jsonText.split(Regex("\\}\\s*\\{"))
+                        if (parts.size < 2) {
+                            val normalized = jsonText.replace("\\r\\n", "\\n").replace("\\r", "\\n")
+                            val parts2 = normalized.split(Regex("\\}\\s*\\\\n+\\s*\\{"))
+                            if (parts2.size < 2) emptyList() else parseSegments(parts2)
+                        } else {
+                            parseSegments(parts)
+                        }
+                    } catch (e4: Exception) {
+                        emptyList()
+                    }
                 }
             }
         }
+    }
+
+    private fun parseSegments(parts: List<String>): List<ShotProfile> {
+        val segments = parts.mapIndexed { index, segment ->
+            when (index) {
+                0 -> segment.trim() + "}"
+                parts.size - 1 -> "{" + segment.trim()
+                else -> "{" + segment.trim() + "}"
+            }
+        }
+        return segments.mapNotNull { seg ->
+            try { gson.fromJson(seg, ShotProfile::class.java) }
+            catch (e: Exception) { null }
+        }
+    }
+
+
+    /**
+     * Backward-compatible single-profile parser.
+     */
+    private fun parseProfileJson(jsonText: String): ShotProfile? {
+        return parseProfilesJson(jsonText).firstOrNull()
     }
 
     /**

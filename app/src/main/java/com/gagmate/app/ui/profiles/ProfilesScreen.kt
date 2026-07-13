@@ -1,4 +1,6 @@
 package com.gagmate.app.ui.profiles
+import androidx.compose.ui.res.stringResource
+import com.gagmate.app.R
 
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -76,15 +78,15 @@ fun ProfilesScreen(
                 },
                 actions = {
                     IconButton(onClick = { viewModel.loadProfiles() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.dashboard_refresh))
                     }
                     IconButton(onClick = {
                         jsonImportLauncher.launch("application/json")
                     }) {
-                        Icon(Icons.Default.FileOpen, contentDescription = "Import JSON")
+                        Icon(Icons.Default.FileOpen, contentDescription = stringResource(R.string.profiles_import))
                     }
                     IconButton(onClick = { showPasteDialog = true }) {
-                        Icon(Icons.Default.ContentPaste, contentDescription = "Paste JSON")
+                        Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.profiles_paste))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -98,7 +100,7 @@ fun ProfilesScreen(
                     jsonImportLauncher.launch("application/json")
                 },
                 icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
-                text = { Text("Import Profile") }
+                text = { Text(stringResource(R.string.profiles_import)) }
             )
         }
     ) { paddingValues ->
@@ -121,12 +123,12 @@ fun ProfilesScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "No Profiles",
+                            text = stringResource(R.string.profiles_no_profiles),
                             style = MaterialTheme.typography.headlineSmall
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Import a profile from JSON or create one",
+                            text = stringResource(R.string.profiles_import_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -136,7 +138,7 @@ fun ProfilesScreen(
                         }) {
                             Icon(Icons.Default.FileOpen, contentDescription = null)
                             Spacer(Modifier.width(8.dp))
-                            Text("Import JSON")
+                            Text(stringResource(R.string.profiles_import))
                         }
                     }
                 }
@@ -184,7 +186,7 @@ fun ProfilesScreen(
                             ) {
                                 Icon(Icons.Default.Add, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Create Sample Profile")
+                                Text(stringResource(R.string.profiles_create_sample))
                             }
                         }
 
@@ -201,7 +203,7 @@ fun ProfilesScreen(
                         .padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.loadProfiles() }) {
-                            Text("Retry")
+                            Text(stringResource(R.string.history_retry))
                         }
                     }
                 ) {
@@ -215,10 +217,17 @@ fun ProfilesScreen(
                     jsonText = pasteJsonText,
                     onJsonTextChange = { pasteJsonText = it },
                     onConfirm = {
-                        val result = viewModel.importProfileFromJsonString(context, pasteJsonText)
-                        if (result == null) {
-                            errorMessage = "Could not parse profile JSON"
-                            showImportError = true
+                        val count = viewModel.importProfileFromJsonString(context, pasteJsonText)
+                        when {
+                            count <= 0 -> {
+                                errorMessage = "Could not parse any profile from JSON"
+                                showImportError = true
+                            }
+                            count > 1 -> {
+                                errorMessage = "$count profiles imported successfully!"
+                                showImportError = true
+                                viewModel.loadProfiles()
+                            }
                         }
                         showPasteDialog = false
                         pasteJsonText = ""
@@ -234,11 +243,11 @@ fun ProfilesScreen(
             if (showImportError) {
                 AlertDialog(
                     onDismissRequest = { showImportError = false },
-                    title = { Text("Import Failed") },
+                    title = { Text(stringResource(R.string.profiles_import_failed)) },
                     text = { Text(errorMessage) },
                     confirmButton = {
                         TextButton(onClick = { showImportError = false }) {
-                            Text("OK")
+                            Text(stringResource(R.string.profiles_close))
                         }
                     }
                 )
@@ -323,7 +332,7 @@ private fun PasteJsonDialog(
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.profiles_cancel))
             }
         }
     )
@@ -350,7 +359,7 @@ private fun ProfileEditDialog(
                         OutlinedTextField(
                             value = editedName,
                             onValueChange = { editedName = it },
-                            label = { Text("Profile Name") },
+                            label = { Text(stringResource(R.string.profile_edit_name)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -358,7 +367,7 @@ private fun ProfileEditDialog(
                         OutlinedTextField(
                             value = editedAuthor,
                             onValueChange = { editedAuthor = it },
-                            label = { Text("Author") },
+                            label = { Text(stringResource(R.string.profile_edit_author)) },
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
                         )
@@ -366,7 +375,7 @@ private fun ProfileEditDialog(
                         OutlinedTextField(
                             value = editedNotes,
                             onValueChange = { editedNotes = it },
-                            label = { Text("Notes / Description") },
+                            label = { Text(stringResource(R.string.profile_edit_notes)) },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
                             maxLines = 5
                         )
@@ -384,14 +393,14 @@ private fun ProfileEditDialog(
                                             set(idx, phase.copy(name = newName))
                                         }
                                     },
-                                    label = { Text("Phase Name") },
+                                    label = { Text(stringResource(R.string.profile_edit_phase_name)) },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true
                                 )
                                 IconButton(onClick = {
                                     editedPhases = editedPhases.toMutableList().apply { removeAt(idx) }
                                 }) {
-                                    Icon(Icons.Default.Delete, contentDescription = "Remove", tint = MaterialTheme.colorScheme.error)
+                                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_edit_remove), tint = MaterialTheme.colorScheme.error)
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -416,7 +425,7 @@ private fun ProfileEditDialog(
                                             set(idx, phase.copy(time = parsed))
                                         }
                                     },
-                                    label = { Text("Time (s)") },
+                                    label = { Text(stringResource(R.string.profile_edit_time)) },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -439,7 +448,7 @@ private fun ProfileEditDialog(
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null)
                         Spacer(Modifier.width(8.dp))
-                        Text("Add Phase")
+                        Text(stringResource(R.string.profile_edit_add_phase))
                     }
                 }
             }
@@ -448,12 +457,12 @@ private fun ProfileEditDialog(
             TextButton(onClick = {
                 onSave(profile.copy(name = editedName, author = editedAuthor, notes = editedNotes, phases = editedPhases))
             }) {
-                Text("Save")
+                Text(stringResource(R.string.profiles_save))
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancel")
+                Text(stringResource(R.string.profiles_cancel))
             }
         }
     )
@@ -511,7 +520,7 @@ private fun ProfileDetailDialog(
         },
         confirmButton = {
             TextButton(onClick = onDismiss) {
-                Text("Close")
+                Text(stringResource(R.string.profiles_close))
             }
         }
     )

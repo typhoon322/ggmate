@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GagMate</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">仪表盘</string>
+    <string name="nav_profiles">曲线</string>
+    <string name="nav_history">历史</string>
+    <string name="nav_settings">设置</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">GagMate</string>
+    <string name="dashboard_connected">已连接</string>
+    <string name="dashboard_connecting">连接中…</string>
+    <string name="dashboard_refresh">刷新</string>
+    <string name="dashboard_cannot_connect">无法连接</string>
+    <string name="dashboard_configure">配置连接</string>
+    <string name="dashboard_start_brew">开始萃取</string>
+    <string name="dashboard_stop_brew">停止萃取</string>
+    <string name="dashboard_active_brew">萃取中</string>
+    <string name="dashboard_machine_stats">机器状态</string>
+    <string name="dashboard_machine_controls">机器控制</string>
+    <string name="dashboard_flush">冲洗</string>
+    <string name="dashboard_steam_on">蒸汽开</string>
+    <string name="dashboard_steam_off">蒸汽关</string>
+    <string name="dashboard_setpoint">设定温度：</string>
+    <string name="dashboard_prime">水泵注水</string>
+    <string name="dashboard_live_chart">实时萃取曲线</string>
+    <string name="dashboard_boiler_t">锅炉</string>
+    <string name="dashboard_steam_t">蒸汽</string>
+    <string name="dashboard_pressure">压力</string>
+    <string name="dashboard_flow_rate">流速</string>
+    <string name="dashboard_time">用时</string>
+    <string name="dashboard_volume">出液量</string>
+    <string name="dashboard_pump">水泵</string>
+    <string name="dashboard_shots_today">今日萃取</string>
+    <string name="dashboard_phase">阶段</string>
+    <string name="dashboard_bar">bar</string>
+    <string name="dashboard_ml_s">ml/s</string>
+    <string name="dashboard_percent">%</string>
+    <string name="dashboard_celsius">°C</string>
+    <string name="dashboard_error_lost">连接断开：%1$s</string>
+    <string name="dashboard_error_connect">无法连接：%1$s</string>
+
+    <!-- Profiles -->
+    <string name="profiles_title">萃取曲线</string>
+    <string name="profiles_import">导入曲线</string>
+    <string name="profiles_paste">粘贴 JSON</string>
+    <string name="profiles_export">导出</string>
+    <string name="profiles_delete">删除</string>
+    <string name="profiles_no_profiles">暂无曲线</string>
+    <string name="profiles_import_hint">导入 JSON 文件或创建新曲线</string>
+    <string name="profiles_create_sample">创建示例曲线</string>
+    <string name="profiles_edit">编辑</string>
+    <string name="profiles_close">关闭</string>
+    <string name="profiles_save">保存</string>
+    <string name="profiles_cancel">取消</string>
+    <string name="profiles_import_failed">导入失败</string>
+    <string name="profiles_parse_error">无法解析 JSON 曲线文件</string>
+    <string name="profiles_parse_error_multiple">无法从 JSON 中解析出任何曲线</string>
+    <string name="profiles_imported_count">成功导入 %1$d 条曲线！</string>
+    <string name="profiles_save_failed">保存曲线失败</string>
+    <string name="profiles_upload_failed">曲线已保存本地，上传失败：%1$s</string>
+    <string name="profiles_load_failed">加载曲线失败：%1$s</string>
+    <string name="profiles_phases">个阶段</string>
+    <string name="profiles_phases_label">萃取阶段（%1$d）</string>
+    <string name="profiles_total">合计：%1$.1fs</string>
+    <string name="profiles_by">%1$s 制作</string>
+
+    <!-- Profile Edit Dialog -->
+    <string name="profile_edit_title">编辑：%1$s</string>
+    <string name="profile_edit_name">曲线名称</string>
+    <string name="profile_edit_author">作者</string>
+    <string name="profile_edit_notes">说明 / 备注</string>
+    <string name="profile_edit_phase_name">阶段名称</string>
+    <string name="profile_edit_target_bar">目标 (bar)</string>
+    <string name="profile_edit_target_mls">目标 (ml/s)</string>
+    <string name="profile_edit_time">时间 (s)</string>
+    <string name="profile_edit_remove">删除</string>
+    <string name="profile_edit_add_phase">添加阶段</string>
+
+    <!-- Paste JSON Dialog -->
+    <string name="paste_title">粘贴 JSON 曲线</string>
+    <string name="paste_hint">在下框粘贴 Gagguino 曲线 JSON，将自动识别并导入。</string>
+    <string name="paste_placeholder">{ "name": "My Profile", "phases": [...] }</string>
+
+    <!-- Shot History -->
+    <string name="history_title">萃取历史</string>
+    <string name="history_no_shots">暂无记录</string>
+    <string name="history_hint">完成的萃取记录将出现在这里</string>
+    <string name="history_refresh">刷新</string>
+    <string name="history_export">导出</string>
+    <string name="history_delete">删除</string>
+    <string name="history_replay">回放</string>
+    <string name="history_load_failed">加载历史失败：%1$s</string>
+    <string name="history_delete_failed">删除失败：%1$s</string>
+    <string name="history_retry">重试</string>
+    <string name="history_export_data">导出萃取数据</string>
+
+    <!-- Shot Replay -->
+    <string name="replay_play">播放</string>
+    <string name="replay_pause">暂停</string>
+
+    <!-- Settings -->
+    <string name="settings_title">设置</string>
+    <string name="settings_back">返回</string>
+    <string name="settings_connection">ggboard 连接</string>
+    <string name="settings_host">主机 / IP 地址</string>
+    <string name="settings_host_hint">192.168.0.186</string>
+    <string name="settings_port">端口</string>
+    <string name="settings_port_hint">80</string>
+    <string name="settings_test">测试连接</string>
+    <string name="settings_testing">测试中…</string>
+    <string name="settings_connected">已连接！</string>
+    <string name="settings_test_failed">测试失败</string>
+    <string name="settings_save_apply">保存并应用</string>
+    <string name="settings_saved">连接设置已保存</string>
+    <string name="settings_connected_to">已连接至 ggboard %1$s:%2$s</string>
+    <string name="settings_about">关于</string>
+    <string name="settings_version">GagMate v1.0.0</string>
+    <string name="settings_description">Gagguino 咖啡机配套应用，连接 ggboard 实时监控和控制你的咖啡机。</string>
+
+    <!-- General -->
+    <string name="general_ml">ml</string>
+    <string name="general_seconds">s</string>
+    <string name="general_minutes">m</string>
+</resources>

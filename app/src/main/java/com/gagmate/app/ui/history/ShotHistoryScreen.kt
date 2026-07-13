@@ -1,4 +1,6 @@
 package com.gagmate.app.ui.history
+import androidx.compose.ui.res.stringResource
+import com.gagmate.app.R
 
 import android.content.Intent
 import androidx.compose.foundation.layout.*
@@ -47,10 +49,10 @@ fun ShotHistoryScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Shot History") },
+                title = { Text(stringResource(R.string.history_title)) },
                 actions = {
                     IconButton(onClick = { viewModel.loadShots() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.history_refresh))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -83,11 +85,11 @@ fun ShotHistoryScreen(
                         )
                         Spacer(Modifier.height(16.dp))
                         Text(
-                            text = "No Shot History", style = MaterialTheme.typography.headlineSmall
+                            text = stringResource(R.string.history_no_shots), style = MaterialTheme.typography.headlineSmall
                         )
                         Spacer(Modifier.height(8.dp))
                         Text(
-                            text = "Completed brew shots will appear here",
+                            text = stringResource(R.string.history_hint),
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -132,7 +134,7 @@ fun ShotHistoryScreen(
                         .padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.loadShots() }) {
-                            Text("Retry")
+                            Text(stringResource(R.string.history_retry))
                         }
                     }
                 ) { Text(error ?: "") }
@@ -189,11 +191,11 @@ private fun ShotHistoryCard(
                         }
                     }
                     IconButton(onClick = onExport, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.FileDownload, contentDescription = "Export",
+                        Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.history_export),
                             tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Delete",
+                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.history_delete),
                             tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     }
                 }
@@ -242,7 +244,7 @@ private fun ShotReplaySection(shot: ShotRecord) {
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text("Shot Replay", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+        Text(stringResource(R.string.history_replay), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
 
         BrewChartView(
             dataPoints = chartPoints,

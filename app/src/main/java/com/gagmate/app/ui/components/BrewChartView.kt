@@ -1,4 +1,5 @@
 package com.gagmate.app.ui.components
+import com.gagmate.app.R
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
@@ -8,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -51,14 +53,14 @@ fun BrewChartView(
                     drawCircle(color = Color(0xFFBF8F6B))
                 }
                 Spacer(Modifier.width(4.dp))
-                Text("Pressure (bar)", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.dashboard_pressure) + " (bar)", style = MaterialTheme.typography.labelSmall)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Canvas(modifier = Modifier.size(10.dp)) {
                     drawCircle(color = Color(0xFF4CAF50))
                 }
                 Spacer(Modifier.width(4.dp))
-                Text("Flow (ml/s)", style = MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.dashboard_flow_rate) + " (ml/s)", style = MaterialTheme.typography.labelSmall)
             }
         }
         Spacer(Modifier.height(4.dp))

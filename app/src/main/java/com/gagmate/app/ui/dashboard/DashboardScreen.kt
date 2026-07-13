@@ -15,10 +15,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.gagmate.app.R
 import com.gagmate.app.theme.*
 import com.gagmate.app.ui.components.GaugeView
 import com.gagmate.app.ui.components.MachineStatusBadge
@@ -59,22 +61,22 @@ fun DashboardScreen(
                 title = {
                     Column {
                         Text(
-                            text = "GagMate",
+                            text = stringResource(R.string.dashboard_title),
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold
                         )
                         StatusIndicator(
                             isConnected = isConnected,
-                            label = if (isConnected) "Connected" else "Connecting..."
+                            label = if (isConnected) stringResource(R.string.dashboard_connected) else stringResource(R.string.dashboard_connecting)
                         )
                     }
                 },
                 actions = {
                     IconButton(onClick = { viewModel.refresh() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Refresh")
+                        Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.dashboard_refresh))
                     }
                     IconButton(onClick = onOpenSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                        Icon(Icons.Default.Settings, contentDescription = stringResource(R.string.nav_settings))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -124,7 +126,7 @@ fun DashboardScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Cannot Connect",
+                            text = stringResource(R.string.dashboard_cannot_connect),
                             style = MaterialTheme.typography.headlineMedium,
                             color = MaterialTheme.colorScheme.error
                         )
@@ -136,7 +138,7 @@ fun DashboardScreen(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Button(onClick = onOpenSettings) {
-                            Text("Configure Connection")
+                            Text(stringResource(R.string.dashboard_configure))
                         }
                     }
                 }
@@ -181,7 +183,7 @@ fun DashboardScreen(
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Text(
-                                        text = "Machine Controls",
+                                        text = stringResource(R.string.dashboard_machine_controls),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -201,7 +203,7 @@ fun DashboardScreen(
                                                 modifier = Modifier.size(18.dp)
                                             )
                                             Spacer(Modifier.width(6.dp))
-                                            Text("Flush", maxLines = 1)
+                                            Text(stringResource(R.string.dashboard_flush), maxLines = 1)
                                         }
 
                                         // Steam toggle
@@ -227,7 +229,7 @@ fun DashboardScreen(
                                             )
                                             Spacer(Modifier.width(6.dp))
                                             Text(
-                                                if (steamOn) "Steam ON" else "Steam OFF",
+                                                if (steamOn) stringResource(R.string.dashboard_steam_on) else stringResource(R.string.dashboard_steam_off),
                                                 maxLines = 1
                                             )
                                         }
@@ -240,7 +242,7 @@ fun DashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween
                                     ) {
                                         Text(
-                                            text = "Setpoint:",
+                                            text = stringResource(R.string.dashboard_setpoint),
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
@@ -291,7 +293,7 @@ fun DashboardScreen(
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
-                                Text("Prime Pump (Fill System)")
+                                Text(stringResource(R.string.dashboard_prime))
                             }
                         }
 
@@ -304,7 +306,7 @@ fun DashboardScreen(
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp)) {
                                         Text(
-                                            text = "Live Brew Chart",
+                                            text = stringResource(R.string.dashboard_live_chart),
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -328,14 +330,14 @@ fun DashboardScreen(
                                 GaugeView(
                                     value = machineState?.temperature ?: 0f,
                                     maxValue = 110f,
-                                    label = "Boiler T",
+                                    label = stringResource(R.string.dashboard_boiler_t),
                                     unit = "\u00B0C",
                                     gaugeColor = GaugeTemperature
                                 )
                                 GaugeView(
                                     value = machineState?.steamTemperature ?: 0f,
                                     maxValue = 160f,
-                                    label = "Steam T",
+                                    label = stringResource(R.string.dashboard_steam_t),
                                     unit = "\u00B0C",
                                     gaugeColor = GaugeFlow
                                 )
@@ -379,7 +381,7 @@ fun DashboardScreen(
                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
                                         Text(
-                                            text = "Active Brew",
+                                            text = stringResource(R.string.dashboard_active_brew),
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -388,15 +390,15 @@ fun DashboardScreen(
                                             horizontalArrangement = Arrangement.SpaceEvenly
                                         ) {
                                             MetricItem(
-                                                label = "Time",
+                                                label = stringResource(R.string.dashboard_time),
                                                 value = machineState?.brewTimeFormatted ?: "0s"
                                             )
                                             MetricItem(
-                                                label = "Volume",
+                                                label = stringResource(R.string.dashboard_volume),
                                                 value = String.format("%.0f ml", machineState?.shotVolume ?: 0f)
                                             )
                                             MetricItem(
-                                                label = "Pump",
+                                                label = stringResource(R.string.dashboard_pump),
                                                 value = String.format("%.0f%%", machineState?.pumpOutput ?: 0f)
                                             )
                                         }
@@ -416,7 +418,7 @@ fun DashboardScreen(
                                     verticalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     Text(
-                                        text = "Machine Stats",
+                                        text = stringResource(R.string.dashboard_machine_stats),
                                         style = MaterialTheme.typography.titleSmall,
                                         fontWeight = FontWeight.Bold
                                     )
@@ -425,7 +427,7 @@ fun DashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceEvenly
                                     ) {
                                         MetricItem(
-                                            label = "Shots Today",
+                                            label = stringResource(R.string.dashboard_shots_today),
                                             value = "${machineState?.shotNumber ?: 0}"
                                         )
                                         MetricItem(

@@ -1,16 +1,127 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">GagMate</string>
-    <string name="dashboard">Dashboard</string>
-    <string name="profiles">Profiles</string>
-    <string name="settings">Settings</string>
-    <string name="connect">Connect</string>
-    <string name="disconnect">Disconnect</string>
-    <string name="import_profile">Import Profile</string>
-    <string name="export_profile">Export Profile</string>
-    <string name="temperature">Temperature</string>
-    <string name="pressure">Pressure</string>
-    <string name="flow">Flow Rate</string>
-    <string name="brew_time">Brew Time</string>
-    <string name="shot_volume">Shot Volume</string>
+
+    <!-- Navigation -->
+    <string name="nav_dashboard">Dashboard</string>
+    <string name="nav_profiles">Profiles</string>
+    <string name="nav_history">History</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Dashboard -->
+    <string name="dashboard_title">GagMate</string>
+    <string name="dashboard_connected">Connected</string>
+    <string name="dashboard_connecting">Connecting…</string>
+    <string name="dashboard_refresh">Refresh</string>
+    <string name="dashboard_cannot_connect">Cannot Connect</string>
+    <string name="dashboard_configure">Configure Connection</string>
+    <string name="dashboard_start_brew">Start Brew</string>
+    <string name="dashboard_stop_brew">Stop Brew</string>
+    <string name="dashboard_active_brew">Active Brew</string>
+    <string name="dashboard_machine_stats">Machine Stats</string>
+    <string name="dashboard_machine_controls">Machine Controls</string>
+    <string name="dashboard_flush">Flush</string>
+    <string name="dashboard_steam_on">Steam ON</string>
+    <string name="dashboard_steam_off">Steam OFF</string>
+    <string name="dashboard_setpoint">Setpoint:</string>
+    <string name="dashboard_prime">Prime Pump (Fill System)</string>
+    <string name="dashboard_live_chart">Live Brew Chart</string>
+    <string name="dashboard_boiler_t">Boiler T</string>
+    <string name="dashboard_steam_t">Steam T</string>
+    <string name="dashboard_pressure">Pressure</string>
+    <string name="dashboard_flow_rate">Flow Rate</string>
+    <string name="dashboard_time">Time</string>
+    <string name="dashboard_volume">Volume</string>
+    <string name="dashboard_pump">Pump</string>
+    <string name="dashboard_shots_today">Shots Today</string>
+    <string name="dashboard_phase">Phase</string>
+    <string name="dashboard_bar">bar</string>
+    <string name="dashboard_ml_s">ml/s</string>
+    <string name="dashboard_percent">%</string>
+    <string name="dashboard_celsius">°C</string>
+    <string name="dashboard_error_lost">Connection lost: %1$s</string>
+    <string name="dashboard_error_connect">Cannot connect: %1$s</string>
+
+    <!-- Profiles -->
+    <string name="profiles_title">Profiles</string>
+    <string name="profiles_import">Import Profile</string>
+    <string name="profiles_paste">Paste JSON</string>
+    <string name="profiles_export">Export</string>
+    <string name="profiles_delete">Delete</string>
+    <string name="profiles_no_profiles">No Profiles</string>
+    <string name="profiles_import_hint">Import a profile from JSON or create one</string>
+    <string name="profiles_create_sample">Create Sample Profile</string>
+    <string name="profiles_edit">Edit</string>
+    <string name="profiles_close">Close</string>
+    <string name="profiles_save">Save</string>
+    <string name="profiles_cancel">Cancel</string>
+    <string name="profiles_import_failed">Import Failed</string>
+    <string name="profiles_parse_error">Could not parse profile JSON</string>
+    <string name="profiles_parse_error_multiple">Could not parse any profile from JSON</string>
+    <string name="profiles_imported_count">%1$d profiles imported successfully!</string>
+    <string name="profiles_save_failed">Failed to save profile</string>
+    <string name="profiles_upload_failed">Profile saved locally, upload failed: %1$s</string>
+    <string name="profiles_load_failed">Failed to load profiles: %1$s</string>
+    <string name="profiles_phases">phases</string>
+    <string name="profiles_phases_label">Brew Phases (%1$d)</string>
+    <string name="profiles_total">Total: %1$.1fs</string>
+    <string name="profiles_by">by %1$s</string>
+
+    <!-- Profile Edit Dialog -->
+    <string name="profile_edit_title">Edit Profile: %1$s</string>
+    <string name="profile_edit_name">Profile Name</string>
+    <string name="profile_edit_author">Author</string>
+    <string name="profile_edit_notes">Notes / Description</string>
+    <string name="profile_edit_phase_name">Phase Name</string>
+    <string name="profile_edit_target_bar">Target (bar)</string>
+    <string name="profile_edit_target_mls">Target (ml/s)</string>
+    <string name="profile_edit_time">Time (s)</string>
+    <string name="profile_edit_remove">Remove</string>
+    <string name="profile_edit_add_phase">Add Phase</string>
+
+    <!-- Paste JSON Dialog -->
+    <string name="paste_title">Paste Profile JSON</string>
+    <string name="paste_hint">Paste your Gagguino profile JSON below. It will be saved as a .json file and imported.</string>
+    <string name="paste_placeholder">{ "name": "My Profile", "phases": [...] }</string>
+
+    <!-- Shot History -->
+    <string name="history_title">Shot History</string>
+    <string name="history_no_shots">No Shot History</string>
+    <string name="history_hint">Completed brew shots will appear here</string>
+    <string name="history_refresh">Refresh</string>
+    <string name="history_export">Export</string>
+    <string name="history_delete">Delete</string>
+    <string name="history_replay">Shot Replay</string>
+    <string name="history_load_failed">Failed to load shots: %1$s</string>
+    <string name="history_delete_failed">Delete failed: %1$s</string>
+    <string name="history_retry">Retry</string>
+    <string name="history_export_data">Export Shot Data</string>
+
+    <!-- Shot Replay -->
+    <string name="replay_play">Play</string>
+    <string name="replay_pause">Pause</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_back">Back</string>
+    <string name="settings_connection">Ggboard Connection</string>
+    <string name="settings_host">Host / IP Address</string>
+    <string name="settings_host_hint">192.168.0.186</string>
+    <string name="settings_port">Port</string>
+    <string name="settings_port_hint">80</string>
+    <string name="settings_test">Test Connection</string>
+    <string name="settings_testing">Testing…</string>
+    <string name="settings_connected">Connected!</string>
+    <string name="settings_test_failed">Test Failed</string>
+    <string name="settings_save_apply">Save &amp; Apply</string>
+    <string name="settings_saved">Connection settings saved</string>
+    <string name="settings_connected_to">Connected to ggboard at %1$s:%2$s</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">GagMate v1.0.0</string>
+    <string name="settings_description">A companion app for Gagguino coffee machines. Connects to ggboard to monitor and control your espresso machine.</string>
+
+    <!-- General -->
+    <string name="general_ml">ml</string>
+    <string name="general_seconds">s</string>
+    <string name="general_minutes">m</string>
 </resources>

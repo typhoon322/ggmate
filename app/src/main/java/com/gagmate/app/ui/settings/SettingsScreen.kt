@@ -1,4 +1,5 @@
 package com.gagmate.app.ui.settings
+import com.gagmate.app.R
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -14,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.ui.settings.SettingsViewModel.ConnectionStatus
@@ -37,10 +39,10 @@ fun SettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Settings") },
+                title = { Text(stringResource(R.string.settings_title)) },
                 navigationIcon = {
                     TextButton(onClick = onBack) {
-                        Text("Back")
+                        Text(stringResource(R.string.settings_back))
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -74,7 +76,7 @@ fun SettingsScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Ggboard Connection",
+                            text = stringResource(R.string.settings_connection),
                             style = MaterialTheme.typography.titleMedium
                         )
                     }
@@ -82,7 +84,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = host,
                         onValueChange = { viewModel.updateHost(it) },
-                        label = { Text("Host / IP Address") },
+                        label = { Text(stringResource(R.string.settings_host)) },
                         placeholder = { Text("192.168.4.1") },
                         leadingIcon = { Icon(Icons.Default.WifiFind, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
@@ -93,7 +95,7 @@ fun SettingsScreen(
                     OutlinedTextField(
                         value = port,
                         onValueChange = { viewModel.updatePort(it) },
-                        label = { Text("Port") },
+                        label = { Text(stringResource(R.string.settings_port)) },
                         placeholder = { Text("80") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -115,20 +117,20 @@ fun SettingsScreen(
                                         strokeWidth = 2.dp
                                     )
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Testing...")
+                                    Text(stringResource(R.string.settings_testing))
                                 }
                                 ConnectionStatus.Connected -> {
                                     Icon(Icons.Default.Check, contentDescription = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Connected!")
+                                    Text(stringResource(R.string.settings_connected))
                                 }
                                 ConnectionStatus.Failed -> {
                                     Icon(Icons.Default.Close, contentDescription = null)
                                     Spacer(Modifier.width(8.dp))
-                                    Text("Test Failed")
+                                    Text(stringResource(R.string.settings_test_failed))
                                 }
                                 else -> {
-                                    Text("Test Connection")
+                                    Text(stringResource(R.string.settings_test))
                                 }
                             }
                         }
@@ -137,7 +139,7 @@ fun SettingsScreen(
                             onClick = { viewModel.saveAndApply() },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text("Save & Apply")
+                            Text(stringResource(R.string.settings_save_apply))
                         }
                     }
                 }
@@ -153,11 +155,11 @@ fun SettingsScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = "About",
+                        text = stringResource(R.string.settings_about),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        text = "GagMate v1.0.0",
+                        text = stringResource(R.string.settings_version),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )

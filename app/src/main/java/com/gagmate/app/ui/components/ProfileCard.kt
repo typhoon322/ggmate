@@ -1,4 +1,5 @@
 package com.gagmate.app.ui.components
+import com.gagmate.app.R
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -11,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.data.model.ShotProfile
@@ -92,7 +94,7 @@ fun ProfileCard(
                 IconButton(onClick = onExport) {
                     Icon(
                         imageVector = Icons.Default.Download,
-                        contentDescription = "Export profile",
+                        contentDescription = stringResource(R.string.profiles_export),
                         tint = MaterialTheme.colorScheme.primary
                     )
                 }
@@ -101,7 +103,7 @@ fun ProfileCard(
                 IconButton(onClick = onDelete) {
                     Icon(
                         imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete profile",
+                        contentDescription = stringResource(R.string.profiles_delete),
                         tint = MaterialTheme.colorScheme.error
                     )
                 }

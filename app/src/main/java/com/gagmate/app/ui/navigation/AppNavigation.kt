@@ -1,4 +1,6 @@
 package com.gagmate.app.ui.navigation
+import androidx.compose.ui.res.stringResource
+import com.gagmate.app.R
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -26,13 +29,13 @@ import com.gagmate.app.ui.settings.SettingsViewModel
  */
 sealed class Screen(
     val route: String,
-    val title: String,
+    @androidx.annotation.StringRes val titleRes: Int,
     val icon: ImageVector
 ) {
-    data object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Dashboard)
-    data object Profiles : Screen("profiles", "Profiles", Icons.Default.List)
-    data object Settings : Screen("settings", "Settings", Icons.Default.Settings)
-    data object History : Screen("history", "History", Icons.Default.History)
+    data object Dashboard : Screen("dashboard", R.string.nav_dashboard, Icons.Default.Dashboard)
+    data object Profiles : Screen("profiles", R.string.nav_profiles, Icons.Default.List)
+    data object History : Screen("history", R.string.nav_history, Icons.Default.History)
+    data object Settings : Screen("settings", R.string.nav_settings, Icons.Default.Settings)
 }
 
 private val bottomNavItems = listOf(
@@ -54,8 +57,8 @@ fun AppNavigation() {
             NavigationBar {
                 bottomNavItems.forEach { screen ->
                     NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
+                        icon = { Icon(screen.icon, contentDescription = stringResource(screen.titleRes)) },
+                        label = { Text(stringResource(screen.titleRes)) },
                         selected = currentRoute == screen.route,
                         onClick = {
                             navController.navigate(screen.route) {
