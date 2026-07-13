@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GagMate</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="profiles">Profiles</string>
+    <string name="settings">Settings</string>
+    <string name="connect">Connect</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="import_profile">Import Profile</string>
+    <string name="export_profile">Export Profile</string>
+    <string name="temperature">Temperature</string>
+    <string name="pressure">Pressure</string>
+    <string name="flow">Flow Rate</string>
+    <string name="brew_time">Brew Time</string>
+    <string name="shot_volume">Shot Volume</string>
+</resources>
