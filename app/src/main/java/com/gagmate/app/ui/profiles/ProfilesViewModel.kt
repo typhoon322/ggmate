@@ -2,10 +2,12 @@ package com.gagmate.app.ui.profiles
 
 import android.content.Context
 import android.net.Uri
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
+import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.model.BrewPhase
 import com.gagmate.app.data.model.ShotProfile
+import com.gagmate.app.R
 import com.gagmate.app.data.repository.MachineRepository
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -21,7 +23,7 @@ import java.io.File
  * ViewModel for the Profiles screen.
  * Manages profile listing, JSON import, and machine sync.
  */
-class ProfilesViewModel : ViewModel() {
+class ProfilesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MachineRepository()
     private val gson = Gson()
@@ -31,6 +33,10 @@ class ProfilesViewModel : ViewModel() {
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    private fun appString(resId: Int, vararg args: Any?): String {
+        return getApplication<Application>().getString(resId, *args)
+    }
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -48,7 +54,7 @@ class ProfilesViewModel : ViewModel() {
                     _error.value = null
                 },
                 onFailure = { e ->
-                    _error.value = "Failed to load profiles: ${e.message}"
+                    _error.value = appString(R.string.profiles_load_failed, e.message ?: "")
                 }
             )
             _isLoading.value = false
@@ -76,7 +82,7 @@ class ProfilesViewModel : ViewModel() {
             }
             profiles.size
         } catch (e: Exception) {
-            _error.value = "Failed to import profile: ${e.message}"
+            _error.value = appString(R.string.profiles_import_failed) + ": ${e.message}"
             0
         }
     }
@@ -96,7 +102,7 @@ class ProfilesViewModel : ViewModel() {
             }
             profiles.size
         } catch (e: Exception) {
-            _error.value = "Failed to import pasted JSON: ${e.message}"
+            _error.value = appString(R.string.profiles_import_failed) + ": ${e.message}"
             0
         }
     }
@@ -187,7 +193,7 @@ class ProfilesViewModel : ViewModel() {
                     loadProfiles()
                 },
                 onFailure = { e ->
-                    _error.value = "Profile saved locally, upload failed: ${e.message}"
+                    _error.value = appString(R.string.profiles_upload_failed, e.message ?: "")
                 }
             )
         }
@@ -201,7 +207,7 @@ class ProfilesViewModel : ViewModel() {
             repository.deleteProfile(profileId).fold(
                 onSuccess = { loadProfiles() },
                 onFailure = { e ->
-                    _error.value = "Failed to delete: ${e.message}"
+                    _error.value = "Delete: ${e.message}"
                 }
             )
         }

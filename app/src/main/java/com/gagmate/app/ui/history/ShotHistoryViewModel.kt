@@ -1,8 +1,10 @@
 package com.gagmate.app.ui.history
 
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
+import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.api.ShotRecord
+import com.gagmate.app.R
 import com.gagmate.app.data.repository.MachineRepository
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -10,7 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-class ShotHistoryViewModel : ViewModel() {
+class ShotHistoryViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MachineRepository()
     private val gson = Gson()
@@ -22,6 +24,10 @@ class ShotHistoryViewModel : ViewModel() {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
+
+    private fun appString(resId: Int, vararg args: Any?): String {
+        return getApplication<Application>().getString(resId, *args)
+    }
     val error: StateFlow<String?> = _error.asStateFlow()
 
     fun loadShots() {
@@ -33,7 +39,7 @@ class ShotHistoryViewModel : ViewModel() {
                     _error.value = null
                 },
                 onFailure = { e ->
-                    _error.value = "Failed to load shots: ${e.message}"
+                    _error.value = appString(R.string.history_load_failed, e.message ?: "")
                 }
             )
             _isLoading.value = false
@@ -49,7 +55,7 @@ class ShotHistoryViewModel : ViewModel() {
             repository.deleteShotHistory(shotId).fold(
                 onSuccess = { loadShots() },
                 onFailure = { e ->
-                    _error.value = "Delete failed: ${e.message}"
+                    _error.value = appString(R.string.history_delete_failed, e.message ?: "")
                 }
             )
         }

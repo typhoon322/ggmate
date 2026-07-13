@@ -57,7 +57,7 @@ fun ProfilesScreen(
         uri?.let {
             val result = viewModel.importProfileFromJson(context, it)
             if (result == null) {
-                errorMessage = "Could not parse profile JSON"
+                errorMessage = context.getString(R.string.profiles_parse_error)
                 showImportError = true
             }
         }
@@ -220,11 +220,11 @@ fun ProfilesScreen(
                         val count = viewModel.importProfileFromJsonString(context, pasteJsonText)
                         when {
                             count <= 0 -> {
-                                errorMessage = "Could not parse any profile from JSON"
+                                errorMessage = context.getString(R.string.profiles_parse_error_multiple)
                                 showImportError = true
                             }
                             count > 1 -> {
-                                errorMessage = "$count profiles imported successfully!"
+                                errorMessage = context.getString(R.string.profiles_imported_count, count)
                                 showImportError = true
                                 viewModel.loadProfiles()
                             }
@@ -279,7 +279,7 @@ fun ProfilesScreen(
                 val json = viewModel.exportProfileAsJson(edited)
                 val result = viewModel.importProfileFromJsonString(context, json)
                 if (result == null) {
-                    errorMessage = "Failed to save profile"
+                    errorMessage = context.getString(R.string.profiles_save_failed)
                     showImportError = true
                 }
             }

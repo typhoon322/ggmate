@@ -1,8 +1,10 @@
 package com.gagmate.app.ui.dashboard
 
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
+import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.model.MachineState
+import com.gagmate.app.R
 import com.gagmate.app.data.repository.MachineRepository
 import com.gagmate.app.ui.components.ChartPoint
 import kotlinx.coroutines.Job
@@ -17,7 +19,7 @@ import kotlinx.coroutines.launch
  * ViewModel for the Dashboard screen.
  * Polls ggboard at 2-second intervals for real-time machine data.
  */
-class DashboardViewModel : ViewModel() {
+class DashboardViewModel(application: Application) : AndroidViewModel(application) {
 
     private val repository = MachineRepository()
 
@@ -31,6 +33,10 @@ class DashboardViewModel : ViewModel() {
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
+
+    private fun appString(resId: Int, vararg args: Any?): String {
+        return getApplication<Application>().getString(resId, *args)
+    }
 
     private val _chartData = MutableStateFlow<List<ChartPoint>>(emptyList())
     val chartData: StateFlow<List<ChartPoint>> = _chartData.asStateFlow()
@@ -69,9 +75,9 @@ class DashboardViewModel : ViewModel() {
                     },
                     onFailure = { e ->
                         if (_isConnected.value) {
-                            _error.value = "Connection lost: ${e.message}"
+                            _error.value = appString(R.string.dashboard_error_lost, e.message ?: "")
                         } else {
-                            _error.value = "Cannot connect: ${e.message}"
+                            _error.value = appString(R.string.dashboard_error_connect, e.message ?: "")
                         }
                         _isConnected.value = false
                         _isLoading.value = false
