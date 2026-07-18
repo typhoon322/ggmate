@@ -120,6 +120,11 @@
     <string name="settings_version">GagMate v1.0.0</string>
     <string name="settings_description">Gagguino 咖啡机配套应用，连接 ggboard 实时监控和控制你的咖啡机。</string>
 
+    <!-- Network Log -->
+    <string name="settings_network_log">网络日志</string>
+    <string name="settings_export_log">导出日志</string>
+    <string name="settings_clear_log">清除日志</string>
+    <string name="settings_network_log_hint">记录网络请求和响应数据，用于调试诊断</string>
     <!-- General -->
     <string name="general_ml">ml</string>
     <string name="general_seconds">s</string>

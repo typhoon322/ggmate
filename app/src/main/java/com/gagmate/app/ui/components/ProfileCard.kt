@@ -6,8 +6,12 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
+import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -15,14 +19,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.gagmate.app.data.model.ShotProfile
+import com.gagmate.app.data.local.entity.ProfileEntity
+import com.gagmate.app.data.local.entity.SyncStatus
 
 /**
- * Card displaying a shot profile with metadata and action buttons.
+ * Card displaying a shot profile with sync status and action buttons.
  */
 @Composable
 fun ProfileCard(
-    profile: ShotProfile,
+    profile: ProfileEntity,
     isActive: Boolean = false,
     onClick: () -> Unit = {},
     onExport: (() -> Unit)? = null,
@@ -58,12 +63,16 @@ fun ProfileCard(
             Spacer(modifier = Modifier.width(12.dp))
 
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = profile.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = profile.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    SyncBadge(status = profile.syncStatus)
+                }
                 if (profile.author.isNotBlank()) {
                     Text(
                         text = "by ${profile.author}",
@@ -73,17 +82,19 @@ fun ProfileCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
+                // Parse phases from JSON for display
+                val phaseCount = try {
+                    val type = object : com.google.gson.reflect.TypeToken<List<*>>() {}.type
+                    val list: List<*>? = com.google.gson.Gson().fromJson(profile.phasesJson, type)
+                    list?.size ?: 0
+                } catch (_: Exception) { 0 }
+
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "${profile.phaseCount} phases",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = String.format("%.1fs", profile.totalBrewTime),
+                        text = "${phaseCount} phases",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -109,5 +120,31 @@ fun ProfileCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SyncBadge(status: SyncStatus) {
+    val (icon, label, color) = when (status) {
+        SyncStatus.SYNCED -> Triple(Icons.Default.Cloud, "Synced", MaterialTheme.colorScheme.primary)
+        SyncStatus.LOCAL_ONLY -> Triple(Icons.Default.CloudOff, "Local", MaterialTheme.colorScheme.tertiary)
+        SyncStatus.MODIFIED -> Triple(Icons.Default.Edit, "Modified", MaterialTheme.colorScheme.secondary)
+        SyncStatus.CONFLICT -> Triple(Icons.Default.SyncProblem, "Conflict", MaterialTheme.colorScheme.error)
+    }
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = color,
+            modifier = Modifier.size(14.dp)
+        )
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = color
+        )
     }
 }

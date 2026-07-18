@@ -1,6 +1,7 @@
 package com.gagmate.app.ui.navigation
 import androidx.compose.ui.res.stringResource
 import com.gagmate.app.R
+import androidx.compose.foundation.layout.Box
 
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -21,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import com.gagmate.app.ui.dashboard.DashboardScreen
 import com.gagmate.app.ui.profiles.ProfilesScreen
 import com.gagmate.app.ui.settings.SettingsScreen
+import com.gagmate.app.ui.components.DebugOverlay
 import com.gagmate.app.ui.history.ShotHistoryScreen
 import com.gagmate.app.ui.settings.SettingsViewModel
 
@@ -52,7 +54,8 @@ fun AppNavigation() {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
-    Scaffold(
+    Box {
+        Scaffold(
         bottomBar = {
             NavigationBar {
                 bottomNavItems.forEach { screen ->
@@ -107,4 +110,6 @@ fun AppNavigation() {
             }
         }
     }
+}
+    DebugOverlay()
 }

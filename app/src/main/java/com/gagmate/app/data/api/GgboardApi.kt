@@ -1,82 +1,57 @@
 package com.gagmate.app.data.api
 
 import com.gagmate.app.data.model.MachineState
-import com.gagmate.app.data.model.ApiResponse
-import com.gagmate.app.data.model.ProfilesResponse
+import com.gagmate.app.data.model.ShotRecordApi
+import com.gagmate.app.data.model.ProfileRef
+import com.gagmate.app.data.model.LatestShotResponse
 import com.gagmate.app.data.model.ShotProfile
+import okhttp3.ResponseBody
 import retrofit2.Response
 import retrofit2.http.*
 
-// Shot history data point for brew replay
-data class ShotDataPoint(
-    val time: Float = 0f,
-    val pressure: Float = 0f,
-    val flow: Float = 0f,
-    val temperature: Float = 0f
-)
-
-data class ShotRecord(
-    val id: String = "",
-    val timestamp: Long = 0L,
-    val profile: String = "",
-    val duration: Float = 0f,
-    val volume: Float = 0f,
-    val data: List<ShotDataPoint> = emptyList()
-)
-
 /**
- * Retrofit API interface for the Gagguino ggboard service.
- * Standard endpoints exposed by the ESP32/Arduino web server.
+ * Gaggiuino v3 REST API.
+ * See https://gaggiuino.github.io/#/rest-api/rest-api
+ *
+ * NOTE: Brew control (start/stop/prime etc.) is NOT available via REST.
+ * It requires WebSocket connection to the machine.
  */
 interface GgboardApi {
 
-    @GET("api/state")
-    suspend fun getMachineState(): Response<MachineState>
+    // ── System ──────────────────────────────────────────────────────
 
-    @GET("api/profiles")
-    suspend fun getProfiles(): Response<ProfilesResponse>
+    @GET("api/system/status")
+    suspend fun getMachineState(): Response<List<MachineState>>
 
-    @GET("api/profile")
-    suspend fun getActiveProfile(): Response<ShotProfile>
+    // ── Profiles ─────────────────────────────────────────────────────────
 
-    @GET("api/profile/{id}")
-    suspend fun getProfileById(@Path("id") profileId: String): Response<ShotProfile>
+    @GET("api/profiles/all")
+    suspend fun getProfiles(): Response<List<ProfileRef>>
+
+    @POST("api/profile-select/{id}")
+    suspend fun selectProfile(@Path("id") profileId: Int): Response<Map<String, Any>>
+
+    @DELETE("api/profile-select/{id}")
+    suspend fun deleteProfile(@Path("id") profileId: Int): Response<Map<String, Any>>
 
     @POST("api/profile")
-    suspend fun uploadProfile(@Body profile: ShotProfile): Response<ApiResponse<String>>
+    suspend fun uploadProfile(@Body profile: ShotProfile): Response<Map<String, Any>>
 
-    @DELETE("api/profile/{id}")
-    suspend fun deleteProfile(@Path("id") profileId: String): Response<ApiResponse<String>>
+    // ── Shots ───────────────────────────────────────────────────────
 
-    @POST("api/command")
-    suspend fun sendCommand(@Body command: Map<String, String>): Response<ApiResponse<String>>
-
-    @GET("api/settings")
-    suspend fun getSettings(): Response<Map<String, String>>
-
-    @POST("api/command/brew")
-    suspend fun startBrew(): Response<ApiResponse<String>>
-
-    @POST("api/command/stop")
-    suspend fun stopBrew(): Response<ApiResponse<String>>
-
-    @GET("api/state/history")
-    suspend fun getHistory(): Response<List<MachineState>>
-
-
-    @GET("api/shots")
-    suspend fun getShotHistory(): Response<List<ShotRecord>>
+    @GET("api/shots/latest")
+    suspend fun getLatestShotId(): Response<List<LatestShotResponse>>
 
     @GET("api/shots/{id}")
-    suspend fun getShotDetail(@Path("id") shotId: String): Response<ShotRecord>
+    suspend fun getShotDetail(@Path("id") shotId: String): Response<ShotRecordApi>
 
-    @DELETE("api/shots/{id}")
-    suspend fun deleteShotHistory(@Path("id") shotId: String): Response<ApiResponse<String>>
+    // ── Settings ────────────────────────────────────────────────────
 
-    @POST("api/command/prime")
-    suspend fun primePump(): Response<ApiResponse<String>>
-    @GET("api/restart")
-    suspend fun restartMachine(): Response<ApiResponse<String>>
+    @GET("api/settings")
+    suspend fun getAllSettings(): Response<Map<String, Any>>
+
+    @GET("api/settings/versions")
+    suspend fun getVersions(): Response<Map<String, Any>>
 
     companion object {
         const val DEFAULT_PORT = 80

@@ -10,8 +10,11 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -23,12 +26,19 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.gagmate.app.data.model.ShotProfile
+import androidx.compose.ui.unit.sp
+import com.gagmate.app.data.local.entity.ProfileEntity
+import com.gagmate.app.data.local.entity.SyncStatus
+import com.gagmate.app.ui.components.BrewChartView
+import com.gagmate.app.ui.components.ChartPoint
 import com.gagmate.app.ui.components.PhaseIndicator
 import com.gagmate.app.ui.components.ProfileCard
 import com.gagmate.app.data.model.BrewPhase
+import com.gagmate.app.data.model.PhaseV3
+import com.gagmate.app.data.model.PhaseTarget
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -38,16 +48,18 @@ fun ProfilesScreen(
 ) {
     val profiles by viewModel.profiles.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     val error by viewModel.error.collectAsState()
-    val activeProfileId by viewModel.activeProfileId.collectAsState()
+    val pendingUploadCount by viewModel.pendingUploadCount.collectAsState()
+    val syncMessage by viewModel.syncMessage.collectAsState()
 
     val context = LocalContext.current
     var showDetailDialog by remember { mutableStateOf(false) }
-    var selectedProfile by remember { mutableStateOf<ShotProfile?>(null) }
+    var selectedProfile by remember { mutableStateOf<ProfileEntity?>(null) }
     var showImportError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
     var showEditDialog by remember { mutableStateOf(false) }
-    var editingProfile by remember { mutableStateOf<ShotProfile?>(null) }
+    var editingProfile by remember { mutableStateOf<ProfileEntity?>(null) }
     var showPasteDialog by remember { mutableStateOf(false) }
     var pasteJsonText by remember { mutableStateOf("") }
 
@@ -151,7 +163,7 @@ fun ProfilesScreen(
                         items(profiles, key = { it.name + it.author }) { profile ->
                             ProfileCard(
                                 profile = profile,
-                                isActive = profile.profileId == activeProfileId,
+                                isActive = false,
                                 onClick = {
                                     selectedProfile = profile
                                     showDetailDialog = true
@@ -169,7 +181,7 @@ fun ProfilesScreen(
                                     )
                                 },
                                 onDelete = {
-                                    profile.profileId?.let { viewModel.deleteProfile(it) }
+                                    profile.machineProfileId?.let { viewModel.deleteProfile(it) }
                                 }
                             )
                         }
@@ -275,15 +287,25 @@ fun ProfilesScreen(
             onDismiss = { showEditDialog = false },
             onSave = { edited ->
                 showEditDialog = false
-                // Upload the edited profile
-                val json = viewModel.exportProfileAsJson(edited)
-                val result = viewModel.importProfileFromJsonString(context, json)
-                if (result == null) {
-                    errorMessage = context.getString(R.string.profiles_save_failed)
-                    showImportError = true
-                }
+                viewModel.saveEditedProfile(edited)
             }
         )
+    }
+
+    // Sync result message banner
+    LaunchedEffect(syncMessage) {
+        if (syncMessage != null) {
+            kotlinx.coroutines.delay(3000)
+            viewModel.clearSyncMessage()
+        }
+    }
+
+    // Error snackbar
+    LaunchedEffect(error) {
+        if (error != null) {
+            kotlinx.coroutines.delay(4000)
+            viewModel.clearError()
+        }
     }
 }
 
@@ -341,14 +363,22 @@ private fun PasteJsonDialog(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileEditDialog(
-    profile: ShotProfile,
+    profile: ProfileEntity,
     onDismiss: () -> Unit,
-    onSave: (ShotProfile) -> Unit
+    onSave: (ProfileEntity) -> Unit
 ) {
     var editedName by remember { mutableStateOf(profile.name) }
     var editedAuthor by remember { mutableStateOf(profile.author) }
     var editedNotes by remember { mutableStateOf(profile.notes) }
-    var editedPhases by remember { mutableStateOf(profile.phases) }
+    var editedPhases by remember {
+        val phases: List<com.gagmate.app.data.model.BrewPhase> = try {
+            com.google.gson.Gson().fromJson(
+                profile.phasesJson,
+                object : com.google.gson.reflect.TypeToken<List<com.gagmate.app.data.model.BrewPhase>>() {}.type
+            ) ?: emptyList()
+        } catch (_: Exception) { emptyList() }
+        mutableStateOf(phases)
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -403,6 +433,38 @@ private fun ProfileEditDialog(
                                     Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_edit_remove), tint = MaterialTheme.colorScheme.error)
                                 }
                             }
+                            // Phase type selector
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    "Type:",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                FilterChip(
+                                    selected = phase.type == "pressure",
+                                    onClick = {
+                                        editedPhases = editedPhases.toMutableList().apply {
+                                            set(idx, phase.copy(type = "pressure"))
+                                        }
+                                    },
+                                    label = { Text("Pressure", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                                FilterChip(
+                                    selected = phase.type == "flow",
+                                    onClick = {
+                                        editedPhases = editedPhases.toMutableList().apply {
+                                            set(idx, phase.copy(type = "flow"))
+                                        }
+                                    },
+                                    label = { Text("Flow", fontSize = 12.sp) },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 OutlinedTextField(
                                     value = phase.target.toString(),
@@ -412,7 +474,7 @@ private fun ProfileEditDialog(
                                             set(idx, phase.copy(target = parsed))
                                         }
                                     },
-                                    label = { Text("Target (${if (phase.isPressureType) "bar" else "ml/s"})") },
+                                    label = { Text("Target (${if (phase.type == "pressure") "bar" else "ml/s"})") },
                                     modifier = Modifier.weight(1f),
                                     singleLine = true,
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
@@ -455,7 +517,7 @@ private fun ProfileEditDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                onSave(profile.copy(name = editedName, author = editedAuthor, notes = editedNotes, phases = editedPhases))
+                onSave(profile.copy(name = editedName, author = editedAuthor, notes = editedNotes, phasesJson = com.google.gson.Gson().toJson(editedPhases)))
             }) {
                 Text(stringResource(R.string.profiles_save))
             }
@@ -468,9 +530,37 @@ private fun ProfileEditDialog(
     )
 }
 
+/** Generate chart data points from brew phases for profile visualization. */
+private fun generateProfileChartPoints(phases: List<BrewPhase>, resolution: Float = 0.25f): List<ChartPoint> {
+    if (phases.isEmpty()) return emptyList()
+    val points = mutableListOf<ChartPoint>()
+    var elapsed = 0f
+    var pressure = 0f
+    var flow = 0f
+
+    for (phase in phases) {
+        val duration = phase.time.coerceAtLeast(0.1f)
+        var t = 0f
+        while (t < duration) {
+            when (phase.type) {
+                "pressure" -> pressure = phase.target
+                "flow" -> flow = phase.target
+            }
+            points.add(ChartPoint(
+                time = elapsed + t,
+                pressure = pressure,
+                flowRate = flow
+            ))
+            t = (t + resolution).coerceAtMost(duration)
+        }
+        elapsed += duration
+    }
+    return points
+}
+
 @Composable
 private fun ProfileDetailDialog(
-    profile: ShotProfile,
+    profile: ProfileEntity,
     onDismiss: () -> Unit,
     onEdit: () -> Unit = {}) {
     AlertDialog(
@@ -479,9 +569,28 @@ private fun ProfileDetailDialog(
             Text(text = profile.name, style = MaterialTheme.typography.headlineSmall)
         },
         text = {
+            val phasesList = try {
+                com.google.gson.Gson().fromJson(
+                    profile.phasesJson,
+                    object : com.google.gson.reflect.TypeToken<List<com.gagmate.app.data.model.BrewPhase>>() {}.type
+                ) as? List<com.gagmate.app.data.model.BrewPhase>
+            } catch (_: Exception) { null }
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Profile chart
+                item {
+                    val chartPoints = phasesList?.let { generateProfileChartPoints(it) } ?: emptyList()
+                    if (chartPoints.isNotEmpty()) {
+                        BrewChartView(
+                            dataPoints = chartPoints,
+                            modifier = Modifier.fillMaxWidth(),
+                            height = 160.dp
+                        )
+                        Spacer(Modifier.height(8.dp))
+                    }
+                }
+
                 item {
                     if (profile.author.isNotBlank()) {
                         Text(
@@ -496,25 +605,20 @@ private fun ProfileDetailDialog(
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Brew Phases (${profile.phaseCount})",
-                        style = MaterialTheme.typography.titleSmall
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                items(profile.phases) { phase ->
-                    PhaseIndicator(phase = phase)
-                }
-
-                item {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = "Total: ${profile.totalBrewTime}s",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (phasesList != null && phasesList.isNotEmpty()) {
+                    item {
+                        Text(
+                            text = "Phases",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 8.dp)
+                        )
+                    }
+                    itemsIndexed(phasesList) { index, phase ->
+                        PhaseCard(index = index + 1, phase = phase.toPhaseV3())
+                    }
                 }
             }
         },
@@ -524,4 +628,58 @@ private fun ProfileDetailDialog(
             }
         }
     )
+}
+
+private fun BrewPhase.toPhaseV3(): PhaseV3 = PhaseV3(
+    name = name,
+    type = type.uppercase(),
+    target = PhaseTarget(end = target, time = (time * 1000).toInt()),
+    skip = false
+)
+
+@Composable
+private fun PhaseCard(index: Int, phase: PhaseV3) {
+    val targetText = if (phase.target != null) {
+        val t = phase.target!!
+        val unit = if (phase.type == "FLOW") " ml/s" else " bar"
+        "${t.end}$unit in ${t.time / 1000}s" + 
+        (if (t.start != null) " (from ${t.start})" else "") +
+        " ${t.curve}"
+    } else ""
+    val stopText = listOfNotNull(
+        phase.stopConditions?.time?.let { "${it / 1000}s" },
+        phase.stopConditions?.pressureAbove?.let { ">${it}bar" },
+        phase.stopConditions?.pressureBelow?.let { "<${it}bar" },
+        phase.stopConditions?.waterPumpedInPhase?.let { "${it}ml" }
+    ).joinToString(" ")
+    Card(
+        modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),
+        shape = RoundedCornerShape(8.dp)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(
+                text = "Phase $index: ${phase.name}",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = "Type: ${phase.type}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (targetText.isNotBlank()) {
+                Text(
+                    text = "Target: $targetText",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            if (stopText.isNotBlank()) {
+                Text(
+                    text = "Stop: $stopText",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
+            }
+        }
+    }
 }

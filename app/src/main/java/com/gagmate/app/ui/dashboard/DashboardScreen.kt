@@ -39,6 +39,8 @@ fun DashboardScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     val chartData by viewModel.chartData.collectAsState()
+    val liveWeight by viewModel.liveWeight.collectAsState()
+    val targetWeight by viewModel.targetWeight.collectAsState()
 
     var steamOn by remember { mutableStateOf(false) }
 
@@ -51,8 +53,8 @@ fun DashboardScreen(
     }
 
     // Sync steam status from machine state
-    LaunchedEffect(machineState?.steamStatus) {
-        steamOn = machineState?.steamStatus == "on"
+    LaunchedEffect(machineState?.steamOn) {
+        steamOn = machineState?.steamOn == true
     }
 
     Scaffold(
@@ -156,12 +158,12 @@ fun DashboardScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 MachineStatusBadge(
-                                    status = machineState?.status ?: "idle",
+                                    status = if (machineState?.isBrewing == true) "brew" else "idle",
                                     isActive = machineState?.isActive == true
                                 )
-                                if (machineState?.activeProfileName?.isNotBlank() == true) {
+                                if (machineState?.profileName?.isNotBlank() == true) {
                                     Text(
-                                        text = machineState!!.activeProfileName,
+                                        text = machineState!!.profileName,
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -206,32 +208,13 @@ fun DashboardScreen(
                                             Text(stringResource(R.string.dashboard_flush), maxLines = 1)
                                         }
 
-                                        // Steam toggle
-                                        Button(
-                                            onClick = {
-                                                val newState = !steamOn
-                                                steamOn = newState
-                                                viewModel.toggleSteam(newState)
-                                            },
+                                        // Tare button
+                                        OutlinedButton(
+                                            onClick = { viewModel.tare() },
                                             modifier = Modifier.weight(1f),
-                                            colors = if (steamOn)
-                                                ButtonDefaults.buttonColors(
-                                                    containerColor = Color(0xFF78909C)
-                                                )
-                                            else
-                                                ButtonDefaults.buttonColors(),
                                             enabled = isConnected && machineState?.isActive != true
                                         ) {
-                                            Icon(
-                                                Icons.Default.Thermostat,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(
-                                                if (steamOn) stringResource(R.string.dashboard_steam_on) else stringResource(R.string.dashboard_steam_off),
-                                                maxLines = 1
-                                            )
+                                            Text("TARE", fontSize = 14.sp)
                                         }
                                     }
 
@@ -276,26 +259,61 @@ fun DashboardScreen(
                                             }
                                         }
                                     }
+
+                                    // Weight setpoint
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = "Weight",
+                                            style = MaterialTheme.typography.bodyMedium
+                                        )
+                                        Text(
+                                            text = String.format("%.1fg", liveWeight),
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            FilledTonalButton(
+                                                onClick = { viewModel.tare() },
+                                                modifier = Modifier.size(40.dp),
+                                                contentPadding = PaddingValues(0.dp),
+                                                enabled = isConnected
+                                            ) {
+                                                Text("T", fontSize = 14.sp)
+                                            }
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    val newVal = targetWeight - 1f
+                                                    viewModel.setWeight(newVal)
+                                                },
+                                                modifier = Modifier.size(40.dp),
+                                                contentPadding = PaddingValues(0.dp),
+                                                enabled = isConnected
+                                            ) {
+                                                Text("-", fontSize = 18.sp)
+                                            }
+                                            FilledTonalButton(
+                                                onClick = {
+                                                    val newVal = targetWeight + 1f
+                                                    viewModel.setWeight(newVal)
+                                                },
+                                                modifier = Modifier.size(40.dp),
+                                                contentPadding = PaddingValues(0.dp),
+                                                enabled = isConnected
+                                            ) {
+                                                Text("+", fontSize = 18.sp)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
 
-                        // Prime pump button
-                        item {
-                            OutlinedButton(
-                                onClick = { viewModel.primePump() },
-                                modifier = Modifier.fillMaxWidth(),
-                                enabled = isConnected && machineState?.isActive != true
-                            ) {
-                                Icon(
-                                    Icons.Default.Water,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(stringResource(R.string.dashboard_prime))
-                            }
-                        }
+
 
                         // Real-time brew chart
                         if (chartData.isNotEmpty()) {
@@ -335,7 +353,7 @@ fun DashboardScreen(
                                     gaugeColor = GaugeTemperature
                                 )
                                 GaugeView(
-                                    value = machineState?.steamTemperature ?: 0f,
+                                    value = 0f,
                                     maxValue = 160f,
                                     label = stringResource(R.string.dashboard_steam_t),
                                     unit = "\u00B0C",
@@ -357,7 +375,7 @@ fun DashboardScreen(
                                     gaugeColor = GaugePressure
                                 )
                                 GaugeView(
-                                    value = machineState?.flow ?: 0f,
+                                    value = 0f,
                                     maxValue = 5f,
                                     label = "Flow Rate",
                                     unit = "ml/s",
@@ -391,15 +409,15 @@ fun DashboardScreen(
                                         ) {
                                             MetricItem(
                                                 label = stringResource(R.string.dashboard_time),
-                                                value = machineState?.brewTimeFormatted ?: "0s"
+                                                value = "--"
                                             )
                                             MetricItem(
                                                 label = stringResource(R.string.dashboard_volume),
-                                                value = String.format("%.0f ml", machineState?.shotVolume ?: 0f)
+                                                value = String.format("%.0f ml", 0f)
                                             )
                                             MetricItem(
                                                 label = stringResource(R.string.dashboard_pump),
-                                                value = String.format("%.0f%%", machineState?.pumpOutput ?: 0f)
+                                                value = String.format("%.0f%%", 0f)
                                             )
                                         }
                                     }
@@ -428,20 +446,14 @@ fun DashboardScreen(
                                     ) {
                                         MetricItem(
                                             label = stringResource(R.string.dashboard_shots_today),
-                                            value = "${machineState?.shotNumber ?: 0}"
+                                            value = "--"
                                         )
                                         MetricItem(
                                             label = "Setpoint",
                                             value = String.format("%.0f\u00B0C", machineState?.setpoint ?: 0f)
                                         )
                                     }
-                                    if (machineState?.currentPhaseName?.isNotBlank() == true) {
-                                        Text(
-                                            text = "Phase: ${machineState!!.currentPhaseName}",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
+                                    // Phase info requires WebSocket
                                 }
                             }
                         }

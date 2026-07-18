@@ -2,125 +2,32 @@ package com.gagmate.app.data.repository
 
 import com.gagmate.app.data.api.GgboardApiClient
 import com.gagmate.app.data.model.MachineState
+import com.gagmate.app.data.model.ProfileRef
+import com.gagmate.app.data.model.ShotRecordApi
 import com.gagmate.app.data.model.ShotProfile
-import com.gagmate.app.data.model.ProfilesResponse
-import com.gagmate.app.data.api.ShotRecord
 
 /**
- * Repository for accessing Gagguino machine data.
- * Abstracts the API layer and handles errors gracefully.
+ * Repository for accessing Gaggiuino v3 machine data via REST API.
+ *
+ * Brew control commands are NOT available via REST – they require WebSocket.
  */
 class MachineRepository {
 
     private val api get() = GgboardApiClient.getApi()
 
-    /**
-     * Fetch current machine state from ggboard.
-     */
+    /** GET /api/system/status → returns array, unwrap first element. */
     suspend fun getMachineState(): Result<MachineState> = runCatching {
         val response = api.getMachineState()
         if (response.isSuccessful) {
-            response.body() ?: throw Exception("Empty response")
+            response.body()?.firstOrNull() ?: throw Exception("Empty response")
         } else {
             throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
         }
     }
 
-    /**
-     * Fetch all saved profiles from ggboard.
-     */
-    suspend fun getProfiles(): Result<ProfilesResponse> = runCatching {
+    /** GET /api/profiles/all → simple profile references (id, name, selected). */
+    suspend fun getProfiles(): Result<List<ProfileRef>> = runCatching {
         val response = api.getProfiles()
-        if (response.isSuccessful) {
-            response.body() ?: throw Exception("Empty response")
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Get active profile details.
-     */
-    suspend fun getActiveProfile(): Result<ShotProfile> = runCatching {
-        val response = api.getActiveProfile()
-        if (response.isSuccessful) {
-            response.body() ?: throw Exception("Empty response")
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Upload a profile to ggboard.
-     */
-    suspend fun uploadProfile(profile: ShotProfile): Result<String> = runCatching {
-        val response = api.uploadProfile(profile)
-        if (response.isSuccessful) {
-            val body = response.body()
-            body?.message ?: "Profile uploaded successfully"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Delete a profile from ggboard.
-     */
-    suspend fun deleteProfile(profileId: String): Result<String> = runCatching {
-        val response = api.deleteProfile(profileId)
-        if (response.isSuccessful) {
-            val body = response.body()
-            body?.message ?: "Profile deleted successfully"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Start a brew shot.
-     */
-    suspend fun startBrew(): Result<String> = runCatching {
-        val response = api.startBrew()
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Brew started"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Stop the current brew.
-     */
-    suspend fun stopBrew(): Result<String> = runCatching {
-        val response = api.stopBrew()
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Brew stopped"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Update the ggboard base URL for connection.
-     */
-
-    /**
-     * Prime the pump (fill the system with water).
-     */
-    suspend fun primePump(): Result<String> = runCatching {
-        val response = api.primePump()
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Pump primed"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Get shot history from the machine.
-     */
-    suspend fun getShotHistory(): Result<List<ShotRecord>> = runCatching {
-        val response = api.getShotHistory()
         if (response.isSuccessful) {
             response.body() ?: emptyList()
         } else {
@@ -128,10 +35,35 @@ class MachineRepository {
         }
     }
 
-    /**
-     * Get detailed shot data for replay.
-     */
-    suspend fun getShotDetail(shotId: String): Result<ShotRecord> = runCatching {
+    /** POST /api/profile-select/{id} → select an active profile. */
+    suspend fun selectProfile(profileId: Int): Result<Unit> = runCatching {
+        val response = api.selectProfile(profileId)
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+        }
+    }
+
+    /** DELETE /api/profile-select/{id} → delete a profile. */
+    suspend fun deleteProfile(profileId: Int): Result<Unit> = runCatching {
+        val response = api.deleteProfile(profileId)
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+        }
+    }
+
+    /** GET /api/shots/latest → returns [{lastShotId: "7"}]. */
+    suspend fun getLatestShotId(): Result<String> = runCatching {
+        val response = api.getLatestShotId()
+        if (response.isSuccessful) {
+            response.body()?.firstOrNull()?.lastShotId
+                ?: throw Exception("No shot ID in response")
+        } else {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+        }
+    }
+
+    /** GET /api/shots/{id} → full shot record with columnar datapoints. */
+    suspend fun getShotDetail(shotId: String): Result<ShotRecordApi> = runCatching {
         val response = api.getShotDetail(shotId)
         if (response.isSuccessful) {
             response.body() ?: throw Exception("Empty response")
@@ -140,57 +72,16 @@ class MachineRepository {
         }
     }
 
-    /**
-     * Delete a shot from history.
-     */
-    suspend fun deleteShotHistory(shotId: String): Result<String> = runCatching {
-        val response = api.deleteShotHistory(shotId)
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Shot deleted"
-        } else {
+    /** POST /api/profile → upload a full profile to the machine. */
+    suspend fun uploadProfile(profile: ShotProfile): Result<Unit> = runCatching {
+        val response = api.uploadProfile(profile)
+        if (!response.isSuccessful) {
             throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
         }
     }
 
     fun updateConnection(host: String, port: Int = 80) {
-        val baseUrl = "http://$host:${port}"
+        val baseUrl = "http://$host:$port"
         GgboardApiClient.updateBaseUrl(baseUrl)
     }
-
-    /**
-     * Run a flush cycle (pump water through group head without brewing).
-     */
-    suspend fun flush(): Result<String> = runCatching {
-        val response = api.sendCommand(mapOf("cmd" to "flush"))
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Flush started"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Toggle steam on or off.
-     */
-    suspend fun toggleSteam(on: Boolean): Result<String> = runCatching {
-        val response = api.sendCommand(mapOf("cmd" to "steam", "value" to if (on) "1" else "0"))
-        if (response.isSuccessful) {
-            response.body()?.message ?: if (on) "Steam on" else "Steam off"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /**
-     * Set boiler temperature setpoint.
-     */
-    suspend fun setSetpoint(temperature: Float): Result<String> = runCatching {
-        val response = api.sendCommand(mapOf("cmd" to "setpoint", "value" to temperature.toString()))
-        if (response.isSuccessful) {
-            response.body()?.message ?: "Setpoint updated"
-        } else {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
 }

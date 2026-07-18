@@ -1,7 +1,12 @@
 package com.gagmate.app.data.api
 
 import okhttp3.OkHttpClient
+import okhttp3.Interceptor
 import okhttp3.logging.HttpLoggingInterceptor
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
+import com.gagmate.app.data.system.DebugLogState
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import java.util.concurrent.TimeUnit
@@ -20,14 +25,62 @@ object GgboardApiClient {
         level = HttpLoggingInterceptor.Level.BODY
     }
 
+    private val fileLoggingInterceptor = Interceptor { chain ->
+        val request = chain.request()
+        val startTime = System.nanoTime()
+
+        val requestBody = if (request.body != null) {
+            val buffer = Buffer()
+            request.body!!.writeTo(buffer)
+            buffer.readUtf8()
+        } else null
+
+        try {
+            val response = chain.proceed(request)
+            val durationMs = (System.nanoTime() - startTime) / 1_000_000
+
+            val responseBody = response.body?.string() ?: ""
+
+            // Always log to the general network log
+            NetworkLogger.log(
+                method = request.method,
+                url = request.url.toString(),
+                requestBody = requestBody,
+                statusCode = response.code,
+                responseBody = responseBody,
+                durationMs = durationMs
+            )
+
+            // Also capture raw JSON for endpoints whose format is being investigated
+            val path = request.url.encodedPath
+            if (path.startsWith("/api/system/") || path.startsWith("/api/profiles/") || path.startsWith("/api/shots/")) {
+                ApiDebugLogger.logResponse(path, response.code, responseBody)
+            }
+            DebugLogState.add("HTTP \${request.method}", "\$path \${response.code} \${responseBody.take(120)}")
+
+            response.newBuilder()
+                .body(responseBody.toResponseBody(response.body?.contentType()))
+                .build()
+        } catch (e: Exception) {
+            NetworkLogger.logError(
+                method = request.method,
+                url = request.url.toString(),
+                requestBody = requestBody,
+                error = e.message ?: e.toString()
+            )
+            throw e
+        }
+    }
+
     private val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
         .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
         .addInterceptor(loggingInterceptor)
+        .addInterceptor(fileLoggingInterceptor)
         .build()
 
-    private var currentBaseUrl: String = "http://192.168.4.1/"
+    private var currentBaseUrl: String = "http://192.168.0.186/"
 
     private var retrofit: Retrofit = buildRetrofit(currentBaseUrl)
 

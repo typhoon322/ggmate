@@ -120,6 +120,18 @@
     <string name="settings_version">GagMate v1.0.0</string>
     <string name="settings_description">A companion app for Gagguino coffee machines. Connects to ggboard to monitor and control your espresso machine.</string>
 
+    <!-- Network Log -->
+    <string name="settings_network_log">Network Log</string>
+    <string name="settings_export_log">Export</string>
+    <string name="settings_clear_log">Clear</string>
+    <string name="settings_network_log_hint">Recorded network requests and responses for debugging</string>
+    <!-- Chart -->
+    <string name="chart_target">Target</string>
+    <string name="chart_pressure">P (bar)</string>
+    <string name="chart_pump_flow">PF (ml/s)</string>
+    <string name="chart_weight_rate">WR (g/s)</string>
+    <string name="chart_temperature">T (°C)</string>
+    <string name="chart_weight">W (g)</string>
     <!-- General -->
     <string name="general_ml">ml</string>
     <string name="general_seconds">s</string>

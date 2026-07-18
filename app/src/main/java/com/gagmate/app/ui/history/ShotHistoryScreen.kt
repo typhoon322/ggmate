@@ -23,7 +23,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.gagmate.app.data.api.ShotRecord
+import androidx.compose.ui.text.style.TextOverflow
+import com.gagmate.app.data.model.ShotRecord
+import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.ui.components.BrewChartView
 import com.gagmate.app.ui.components.ChartPoint
 import kotlinx.coroutines.delay
@@ -146,7 +148,7 @@ fun ShotHistoryScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ShotHistoryCard(
-    shot: ShotRecord,
+    shot: ShotEntity,
     isExpanded: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
@@ -169,9 +171,10 @@ private fun ShotHistoryCard(
                     Icon(Icons.Default.Coffee, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(8.dp))
-                    Column {
-                        Text(shot.profile.ifEmpty { "Espresso" },
-                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium)
+                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                        Text(shot.profileName.ifEmpty { "Espresso" },
+                            style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(dateFormat.format(Date(shot.timestamp * 1000)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -202,7 +205,7 @@ private fun ShotHistoryCard(
             }
 
             // Expanded replay section
-            if (isExpanded && shot.data.isNotEmpty()) {
+            if (isExpanded) {
                 Spacer(Modifier.height(12.dp))
                 Divider()
                 Spacer(Modifier.height(12.dp))
@@ -214,32 +217,52 @@ private fun ShotHistoryCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ShotReplaySection(shot: ShotRecord) {
-    val chartPoints = remember(shot) {
-        shot.data.map { ChartPoint(time = it.time, pressure = it.pressure, flowRate = it.flow) }
+private fun ShotReplaySection(shot: ShotEntity) {
+    val shotRecord = shot.toShotRecord()
+        val chartPoints = shotRecord.data.mapIndexed { index, point ->
+        // Compute weight change rate (g/s) from consecutive weight values
+        val wcr = if (index == 0) 0f else {
+            val prev = shotRecord.data[index - 1]
+            val dt = point.time - prev.time
+            val dw = point.weight - prev.weight
+            if (dt > 0f) dw / dt else 0f
+        }
+        ChartPoint(
+            time = point.time,
+            pressure = point.pressure,
+            flowRate = point.flow,
+            weight = point.weight,
+            weightChangeRate = wcr,
+            temperature = point.temperature,
+            targetPressure = point.targetPressure,
+            targetFlowRate = point.targetFlow,
+            targetTemperature = point.targetTemperature
+        )
     }
     val totalTime = chartPoints.lastOrNull()?.time ?: 0f
     val maxTime = totalTime.coerceAtLeast(1f)
 
-    var currentTime by remember { mutableFloatStateOf(0f) }
+    var currentTime by remember { mutableFloatStateOf(maxTime) }
     var isPlaying by remember { mutableStateOf(false) }
     var speed by remember { mutableFloatStateOf(1f) }
 
-    // Animation loop
+    // Animation loop — replays from 0 when started, stops at end
     LaunchedEffect(isPlaying, speed) {
         if (isPlaying && totalTime > 0) {
-            while (currentTime < totalTime) {
+            while (currentTime < totalTime && isPlaying) {
                 delay(16L) // ~60fps
                 currentTime = (currentTime + 0.016f * speed).coerceAtMost(totalTime)
             }
-            isPlaying = false
-            currentTime = totalTime
+            if (currentTime >= totalTime) {
+                isPlaying = false
+                currentTime = totalTime
+            }
         }
     }
 
-    // Reset when shot changes
+    // Reset when shot changes — show full chart initially
     LaunchedEffect(shot) {
-        currentTime = 0f
+        currentTime = maxTime
         isPlaying = false
     }
 
@@ -270,7 +293,15 @@ private fun ShotReplaySection(shot: ShotRecord) {
         ) {
             // Play/pause + speed
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = { isPlaying = !isPlaying }) {
+                IconButton(onClick = {
+                    if (currentTime >= totalTime) {
+                        // Reset and replay from start
+                        currentTime = 0f
+                        isPlaying = true
+                    } else {
+                        isPlaying = !isPlaying
+                    }
+                }) {
                     Icon(
                         if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                         contentDescription = if (isPlaying) "Pause" else "Play"

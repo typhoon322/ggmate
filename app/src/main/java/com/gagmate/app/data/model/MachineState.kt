@@ -3,68 +3,78 @@ package com.gagmate.app.data.model
 import com.google.gson.annotations.SerializedName
 
 /**
- * Represents the real-time state of the Gagguino machine from ggboard API.
- * Maps to the /api/state JSON response.
+ * A single snapshot from GET /api/system/status.
+ *
+ * The API returns a JSON ARRAY wrapping one state object,
+ * with **all values as strings**:
+ * ```json
+ * [{
+ *   "upTime":"8763",
+ *   "profileId":"24",
+ *   "profileName":"Light 74158 v3.2",
+ *   "targetTemperature":"95.000000",
+ *   "temperature":"28.061331",
+ *   "pressure":"-0.060986",
+ *   "waterLevel":"100",
+ *   "weight":"0.000000",
+ *   "brewSwitchState":"false",
+ *   "steamSwitchState":"false"
+ * }]
+ * ```
  */
 data class MachineState(
-    @SerializedName("status")
-    val status: String = "idle",
+    @SerializedName("upTime")
+    val upTime: String = "0",
 
-    @SerializedName("mode")
-    val mode: String = "normal",
+    @SerializedName("profileId")
+    val profileId: String = "",
 
-    @SerializedName("setpoint")
-    val setpoint: Float = 0f,
+    @SerializedName("profileName")
+    val profileName: String = "",
+
+    @SerializedName("targetTemperature")
+    val targetTemperatureStr: String = "0",
 
     @SerializedName("temperature")
-    val temperature: Float = 0f,
-
-    @SerializedName("steam_temp")
-    val steamTemperature: Float = 0f,
+    val temperatureStr: String = "0",
 
     @SerializedName("pressure")
-    val pressure: Float = 0f,
+    val pressureStr: String = "0",
 
-    @SerializedName("pressure_target")
-    val pressureTarget: Float = 0f,
+    @SerializedName("waterLevel")
+    val waterLevel: String = "0",
 
-    @SerializedName("flow")
-    val flow: Float = 0f,
+    @SerializedName("weight")
+    val weight: String = "0",
 
-    @SerializedName("flow_target")
-    val flowTarget: Float = 0f,
+    @SerializedName("brewSwitchState")
+    val brewSwitchState: String = "false",
 
-    @SerializedName("brew_time")
-    val brewTime: Float = 0f,
-
-    @SerializedName("shot_volume")
-    val shotVolume: Float = 0f,
-
-    @SerializedName("pump_output")
-    val pumpOutput: Float = 0f,
-
-    @SerializedName("steam_status")
-    val steamStatus: String = "off",
-
-    @SerializedName("profile_name")
-    val activeProfileName: String = "",
-
-    @SerializedName("phase_name")
-    val currentPhaseName: String = "",
-
-    @SerializedName("shot_number")
-    val shotNumber: Int = 0,
-
-    @SerializedName("uptime")
-    val uptime: Long = 0
+    @SerializedName("steamSwitchState")
+    val steamSwitchState: String = "false"
 ) {
-    val isBrewing: Boolean get() = status == "brew"
-    val isPreinfusion: Boolean get() = status == "preinfusion"
-    val isIdle: Boolean get() = status == "idle"
-    val isActive: Boolean get() = !isIdle
-    val brewTimeFormatted: String get() {
-        val mins = (brewTime / 60).toInt()
-        val secs = (brewTime % 60).toInt()
-        return if (mins > 0) "${mins}m${secs}s" else "${secs}s"
+    // ── Parsed convenience accessors ──
+
+    val temperature: Float get() = temperatureStr.toFloatOrNull() ?: 0f
+    val pressure: Float  get() = pressureStr.toFloatOrNull() ?: 0f
+    val targetTemperature: Float get() = targetTemperatureStr.toFloatOrNull() ?: 0f
+    val upTimeSeconds: Long get() = upTime.toLongOrNull() ?: 0L
+
+    /** true when the brew switch is pressed (machine is actively brewing). */
+    val isBrewing: Boolean get() = brewSwitchState == "true"
+
+    /** Steam switch is a physical toggle; this reflects its current position. */
+    val steamOn: Boolean get() = steamSwitchState == "true"
+
+    val isIdle: Boolean get() = !isBrewing
+    val isActive: Boolean get() = isBrewing
+    val setpoint: Float get() = targetTemperature
+
+    /** Human-readable uptime. */
+    val upTimeFormatted: String get() {
+        val secs = upTimeSeconds
+        val h = secs / 3600
+        val m = (secs % 3600) / 60
+        return if (h > 0) "${h}h ${m}m" else "${m}m"
     }
 }

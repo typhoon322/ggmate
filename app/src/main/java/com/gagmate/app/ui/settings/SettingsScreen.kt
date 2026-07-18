@@ -10,6 +10,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.WifiFind
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -19,7 +21,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.LocaleHelper
+import com.gagmate.app.data.system.DebugLogState
 import com.gagmate.app.ui.settings.SettingsViewModel.ConnectionStatus
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -35,6 +39,11 @@ fun SettingsScreen(
     val currentLang by viewModel.currentLang.collectAsState()
     val context = LocalContext.current
     val savedMessage by viewModel.savedMessage.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
+    val syncResult by viewModel.syncResult.collectAsState()
+
+    val hasLog = viewModel.hasLog()
+    val logSize = remember { derivedStateOf { viewModel.logSizeFormatted() } }
 
     LaunchedEffect(Unit) {
         viewModel.loadSettings()
@@ -90,7 +99,7 @@ fun SettingsScreen(
                         value = host,
                         onValueChange = { viewModel.updateHost(it) },
                         label = { Text(stringResource(R.string.settings_host)) },
-                        placeholder = { Text("192.168.4.1") },
+                        placeholder = { Text("192.168.0.186") },
                         leadingIcon = { Icon(Icons.Default.WifiFind, contentDescription = null) },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
@@ -147,6 +156,52 @@ fun SettingsScreen(
                             Text(stringResource(R.string.settings_save_apply))
                         }
                     }
+
+                    // Sync button
+                    Divider()
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedButton(
+                            onClick = { viewModel.triggerSync() },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isSyncing
+                        ) {
+                            if (isSyncing) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(16.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(Modifier.width(8.dp))
+                            }
+                            Text("Sync Now")
+                        }
+
+                    }
+
+                    // Sync result  
+                    syncResult?.let { result ->
+                        Text(
+                            text = result.summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (result.isSuccess)
+                                MaterialTheme.colorScheme.primary
+                            else
+                                MaterialTheme.colorScheme.error
+                        )
+                        if (result.errors.isNotEmpty()) {
+                            result.errors.forEach { err ->
+                                Text(
+                                    text = err,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
             }
 
@@ -206,6 +261,60 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+
+                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // Network log export
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.settings_network_log),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            if (hasLog) {
+                                Text(
+                                    text = logSize.value,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (hasLog) {
+                                OutlinedButton(
+                                    onClick = { viewModel.shareLog(context) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Filled.Share,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Export", style = MaterialTheme.typography.bodySmall)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.clearLog() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    )
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Clear", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
