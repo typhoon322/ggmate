@@ -106,7 +106,8 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                     pressureStr = sensor.pressure.toString(),
                     waterLevel = sensor.waterLevel.toString(),
                     weight = (shot?.weight ?: 0f).toString(),
-                    brewSwitchState = if (sysState.state != 0) "true" else "false",
+                    // state=1 means brewing, 0=idle, other=steam/descale
+                    brewSwitchState = if (sysState.state == 1) "true" else "false",
                     steamSwitchState = "false"
                 )
             }.collect { state ->

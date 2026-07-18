@@ -29,7 +29,9 @@ data class ChartPoint(
     val temperature: Float = 0f,
     val targetPressure: Float = 0f,
     val targetFlowRate: Float = 0f,
-    val targetTemperature: Float = 0f
+    val targetTemperature: Float = 0f,
+    /** Accumulated weight in grams (from shotWeight column). */
+    val shotWeight: Float = 0f
 )
 
 // Colors matching user's spec
@@ -81,7 +83,7 @@ fun BrewChartView(
             if (dataPoints.any { it.temperature > 0.5f }) {
                 LegendItem(color = temperatureColor, label = stringResource(R.string.chart_temperature))
             }
-            if (dataPoints.any { it.weight > 0.1f }) {
+            if (dataPoints.any { (if (it.shotWeight > 0f) it.shotWeight else it.weight) > 0.1f }) {
                 LegendItem(color = weightColor, label = stringResource(R.string.chart_weight))
             }
             if (hasTargetData) {
@@ -244,11 +246,11 @@ fun BrewChartView(
                 drawPath(tempPath, temperatureColor,
                     style = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
 
-                // Weight (brown, right axis)
+                // Weight (brown, right axis) — use shotWeight (accumulated grams)
                 val weightPath = Path()
                 displayPoints.forEachIndexed { idx, pt ->
                     val x = xPos(pt.time)
-                    val y = yValRight(pt.weight)
+                    val y = yValRight(if (pt.shotWeight > 0f) pt.shotWeight else pt.weight)
                     if (idx == 0) weightPath.moveTo(x, y) else weightPath.lineTo(x, y)
                 }
                 drawPath(weightPath, weightColor,

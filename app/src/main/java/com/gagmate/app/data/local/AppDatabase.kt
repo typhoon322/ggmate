@@ -17,7 +17,7 @@ import com.gagmate.app.data.local.entity.ShotEntity
         ShotEntity::class,
         MachineSettingsEntity::class
     ],
-    version = 1,
+    version = 3,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {

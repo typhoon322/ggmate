@@ -167,11 +167,11 @@ private fun ShotHistoryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(0.6f)) {
                     Icon(Icons.Default.Coffee, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
                     Spacer(Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f, fill = false)) {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(shot.profileName.ifEmpty { "Espresso" },
                             style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -219,24 +219,20 @@ private fun ShotHistoryCard(
 @Composable
 private fun ShotReplaySection(shot: ShotEntity) {
     val shotRecord = shot.toShotRecord()
-        val chartPoints = shotRecord.data.mapIndexed { index, point ->
-        // Compute weight change rate (g/s) from consecutive weight values
-        val wcr = if (index == 0) 0f else {
-            val prev = shotRecord.data[index - 1]
-            val dt = point.time - prev.time
-            val dw = point.weight - prev.weight
-            if (dt > 0f) dw / dt else 0f
-        }
+        val chartPoints = shotRecord.data.map { point ->
+        // weight from API IS the weight flow rate (g/s) — use directly
+        // shotWeight from API IS the accumulated weight (g) — use for brown line
         ChartPoint(
             time = point.time,
             pressure = point.pressure,
             flowRate = point.flow,
-            weight = point.weight,
-            weightChangeRate = wcr,
+            weight = if (point.shotWeight > 0f) point.shotWeight else point.weight,
+            weightChangeRate = point.weight,  // API value IS the g/s rate
             temperature = point.temperature,
             targetPressure = point.targetPressure,
             targetFlowRate = point.targetFlow,
-            targetTemperature = point.targetTemperature
+            targetTemperature = point.targetTemperature,
+            shotWeight = point.shotWeight
         )
     }
     val totalTime = chartPoints.lastOrNull()?.time ?: 0f
