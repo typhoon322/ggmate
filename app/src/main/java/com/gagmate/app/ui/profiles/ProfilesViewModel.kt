@@ -30,16 +30,17 @@ import java.util.UUID
  * ViewModel for the Profiles screen.
  *
  * Primary data source is the local Room database (offline-first).
- * Sync with the machine happens in the background or on demand.
+ * Profile activation/selection goes through WebSocket ([MachineSessionManager]).
+ * Non-real-time reads (list, detail) use REST API.
  */
 class ProfilesViewModel(application: Application) : AndroidViewModel(application) {
 
     private val localRepo: LocalDataRepository = AppContainer.localRepo
     private val machineRepo = MachineRepository()
     private val syncManager: SyncManager = AppContainer.syncManager
+    private val machineSession = AppContainer.machineSession
     private val gson = Gson()
 
-    // Profiles from local DB – always available, even offline
     private val _profiles = MutableStateFlow<List<ProfileEntity>>(emptyList())
     val profiles: StateFlow<List<ProfileEntity>> = _profiles.asStateFlow()
 
@@ -63,13 +64,11 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
 
     init {
-        // Observe local DB changes reactively
         viewModelScope.launch {
             localRepo.profilesFlow.collectLatest { list ->
                 _profiles.value = list
             }
         }
-        // Track pending upload count
         viewModelScope.launch {
             localRepo.pendingUploadCount.collectLatest { count ->
                 _pendingUploadCount.value = count
@@ -79,28 +78,20 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     // ── Load / sync ────────────────────────────────────────────────
 
-    /**
-     * Load profiles from the local DB (instant) then trigger a background sync.
-     */
     fun loadProfiles() {
         viewModelScope.launch {
             _isLoading.value = true
-            // Local data is already reactive via init{} – just trigger sync
             syncProfiles()
             _isLoading.value = false
         }
     }
 
-    /**
-     * Sync profiles with the machine (bidirectional).
-     */
     fun syncProfiles() {
         viewModelScope.launch {
             _isSyncing.value = true
             _error.value = null
             val result = syncManager.fullSync()
             _isSyncing.value = false
-
             if (result.errors.isNotEmpty()) {
                 _error.value = result.errors.joinToString("; ")
             } else if (result.profilesAdded > 0 || result.profilesConflicted > 0 || result.profilesUploaded > 0) {
@@ -109,31 +100,52 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Upload local-only and modified profiles to the machine.
-     */
     fun uploadPending() {
         viewModelScope.launch {
             _isSyncing.value = true
             _error.value = null
             val result = syncManager.uploadPendingProfiles()
             _isSyncing.value = false
-
             if (result.errors.isNotEmpty()) {
                 _error.value = result.errors.joinToString("; ")
             } else if (result.profilesUploaded > 0) {
                 _syncMessage.value = "${result.profilesUploaded} profile(s) uploaded"
-                syncProfiles()  // refresh after upload
+                syncProfiles()
+            }
+        }
+    }
+
+    // ── Profile activation (via WebSocket) ─────────────────────────
+
+    /**
+     * Select and activate a profile on the machine via WebSocket.
+     * Replaces REST-based POST /api/profile-select/{id}.
+     */
+    fun selectProfile(machineProfileId: Int) {
+        try {
+            machineSession.selectProfile(machineProfileId)
+            _syncMessage.value = "Profile activated"
+        } catch (e: Exception) {
+            _error.value = "Failed to activate profile: ${e.message}"
+        }
+    }
+
+    // ── Delete (REST fallback) ────────────────────────────────────
+
+    fun deleteProfile(profileId: String) {
+        viewModelScope.launch {
+            val entity = localRepo.getProfileById(profileId)
+            if (entity == null) return@launch
+            localRepo.deleteProfile(profileId)
+            val machineId = entity.machineProfileId
+            if (machineId != null && entity.syncStatus != SyncStatus.LOCAL_ONLY) {
+                machineRepo.deleteProfile(machineId.toIntOrNull() ?: return@launch)
             }
         }
     }
 
     // ── Import ──────────────────────────────────────────────────────
 
-    /**
-     * Import profiles from a JSON file URI. Saves to local DB (does not
-     * automatically upload – user uploads later via the Upload button).
-     */
     fun importProfileFromJson(context: Context, uri: Uri): Int {
         return try {
             val inputStream = context.contentResolver.openInputStream(uri)
@@ -141,7 +153,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
             val jsonText = reader.readText()
             reader.close()
             inputStream?.close()
-
             val shotProfiles = parseProfilesJson(jsonText)
             val count = shotProfiles.size
             viewModelScope.launch {
@@ -154,9 +165,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Import a profile from a raw JSON string (paste).
-     */
     fun importProfileFromJsonString(context: Context, jsonText: String): Int {
         return try {
             val shotProfiles = parseProfilesJson(jsonText)
@@ -171,10 +179,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /**
-     * Parse JSON string into a ShotProfile.
-     * Handles both single profile objects and arrays.
-     */
     private fun parseProfilesJson(jsonText: String): List<ShotProfile> {
         return try {
             listOfNotNull(gson.fromJson(jsonText, ShotProfile::class.java))
@@ -226,41 +230,12 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    // ── Delete ──────────────────────────────────────────────────────
-
-    /**
-     * Delete a profile. Removes from local DB. If it was previously synced,
-     * also attempts deletion from the machine (best-effort).
-     */
-    fun deleteProfile(profileId: String) {
-        viewModelScope.launch {
-            val entity = localRepo.getProfileById(profileId)
-            if (entity == null) return@launch
-
-            // Remove from local DB first
-            localRepo.deleteProfile(profileId)
-
-            // Best-effort removal from machine via profile-select endpoint
-            val machineId = entity.machineProfileId
-            if (machineId != null && entity.syncStatus != SyncStatus.LOCAL_ONLY) {
-                // v3 uses DELETE /api/profile-select/{id}
-                machineRepo.deleteProfile(machineId.toIntOrNull() ?: return@launch)
-            }
-        }
-    }
-
     // ── Export ──────────────────────────────────────────────────────
 
-    /**
-     * Export a profile as JSON text (uses ShotProfile format).
-     */
     fun exportProfileAsJson(entity: ProfileEntity): String {
         return gson.toJson(entity.toShotProfile())
     }
 
-    /**
-     * Create a sample profile and save it locally.
-     */
     fun createSampleProfile(): ProfileEntity {
         val sp = ShotProfile(
             name = "Classic Espresso",
@@ -280,10 +255,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     // ── Edit ────────────────────────────────────────────────────────
 
-    /**
-     * Save an edited profile back to the local DB (marks as MODIFIED).
-     * Must be called after the user taps Save in the edit dialog.
-     */
     fun saveEditedProfile(entity: ProfileEntity) {
         viewModelScope.launch {
             val updated = entity.copy(
@@ -291,8 +262,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                 localUpdatedAt = System.currentTimeMillis()
             )
             localRepo.saveProfile(updated)
-
-            // Auto-upload to machine in background (best-effort)
             try {
                 val profile = updated.toShotProfile()
                 machineRepo.uploadProfile(profile).onSuccess {
@@ -317,11 +286,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         return parts.joinToString(", ").ifEmpty { "Synced" }
     }
 
-    fun clearSyncMessage() {
-        _syncMessage.value = null
-    }
-
-    fun clearError() {
-        _error.value = null
-    }
+    fun clearSyncMessage() { _syncMessage.value = null }
+    fun clearError() { _error.value = null }
 }

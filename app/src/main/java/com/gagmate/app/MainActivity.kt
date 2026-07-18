@@ -21,6 +21,8 @@ import com.gagmate.app.ui.navigation.AppNavigation
  */
 class MainActivity : ComponentActivity() {
 
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override fun attachBaseContext(newBase: Context) {
         super.attachBaseContext(LocaleHelper.applyLanguage(newBase))
     }
@@ -31,17 +33,25 @@ class MainActivity : ComponentActivity() {
         ApiDebugLogger.init(this)
         AppContainer.init(this)
         // Background sync when machine URL is already configured
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+        appScope.launch {
             kotlinx.coroutines.delay(500)  // let UI settle
             try {
                 AppContainer.syncManager.fullSync()
             } catch (_: Exception) { /* silent – user can sync from Settings */ }
         }
+        // Start global machine session
+        AppContainer.machineSession.start(appScope)
+
         enableEdgeToEdge()
         setContent {
             GagMateTheme {
                 AppNavigation()
             }
         }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        AppContainer.machineSession.stop()
     }
 }

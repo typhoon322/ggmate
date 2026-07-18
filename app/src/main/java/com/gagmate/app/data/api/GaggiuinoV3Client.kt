@@ -6,61 +6,7 @@ import okio.ByteString
 import java.nio.ByteBuffer
 import com.gagmate.app.data.api.ApiDebugLogger
 import com.gagmate.app.data.system.DebugLogState
-
-private fun ByteArray.toHex() = joinToString("") { "%02x".format(it) }
-
-// ── Protobuf codec ──────────────────────────────────────────────────
-
-object ProtoCodec {
-    fun encodeVarint(value: Long): ByteArray {
-        val out = mutableListOf<Byte>()
-        var v = value
-        while (v >= 0x80L) {
-            out.add(((v and 0x7FL) or 0x80L).toByte())
-            v = v shr 7
-        }
-        out.add((v and 0x7FL).toByte())
-        return out.toByteArray()
-    }
-    fun encodeTag(field: Int, wt: Int): ByteArray = encodeVarint(((field shl 3) or wt).toLong())
-    fun encodeLengthDelimited(field: Int, value: ByteArray): ByteArray {
-        val tag = encodeTag(field, 2)
-        return tag + encodeVarint(value.size.toLong()) + value
-    }
-    fun encodeVarintField(field: Int, value: Long): ByteArray = encodeTag(field, 0) + encodeVarint(value)
-    fun encodeFloatField(field: Int, value: Float): ByteArray {
-        return encodeTag(field, 5) + ByteBuffer.allocate(4).putFloat(value).array()
-    }
-    fun buildCommand(cmd: String, payload: ByteArray? = null): ByteArray {
-        val cmdPart = encodeLengthDelimited(1, cmd.toByteArray())
-        return if (payload != null) cmdPart + encodeLengthDelimited(2, payload) else cmdPart
-    }
-    fun decodeResponse(data: ByteArray): Pair<String, ByteArray>? {
-        try {
-            var offset = 0; var command = ""; var payload = byteArrayOf()
-            while (offset < data.size) {
-                val (tw, p1) = readVarint(data, offset); offset = p1
-                val fn = (tw shr 3).toInt(); val wt = (tw and 0x7L).toInt()
-                when (wt) {
-                    0 -> { val (_, p2) = readVarint(data, offset); offset = p2 }
-                    2 -> { val (len, p2) = readVarint(data, offset); offset = p2
-                        val v = data.copyOfRange(offset, offset + len.toInt()); offset += len.toInt()
-                        when (fn) { 1 -> command = v.decodeToString(); 2 -> payload = v } }
-                    5 -> offset += 4
-                }
-            }
-            return if (command.isNotEmpty()) command to payload else null
-        } catch (_: Exception) { return null }
-    }
-    private fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
-        var value = 0L; var shift = 0; var pos = offset
-        while (pos < data.size) {
-            val byte = data[pos].toInt() and 0xFF; value = value or ((byte and 0x7F).toLong() shl shift)
-            shift += 7; pos++; if (byte and 0x80 == 0) break
-        }
-        return value to pos
-    }
-}
+import com.gagmate.app.data.protocol.ProtoCodec
 
 // ── WebSocket client ───────────────────────────────────────────────
 
@@ -107,9 +53,9 @@ class GaggiuinoV3Client(private val host: String, private val port: Int = 80) {
             override fun onOpen(ws: WebSocket, res: Response) { listener?.onConnected() }
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 val data = bytes.toByteArray()
-                ApiDebugLogger.logResponse("WS <<", bytes.size, bytes.hex())
+                ApiDebugLogger.logResponse("WS <<", bytes.size, bytes.toByteArray().joinToString("") { "%02x".format(it.toInt() and 0xFF) })
                 ProtoCodec.decodeResponse(data)?.let { (cmd, payload) ->
-                    ApiDebugLogger.logResponse("WS << ", payload.size, payload.toHex())
+                    ApiDebugLogger.logResponse("WS << ", payload.size, payload.joinToString("") { "%02x".format(it.toInt() and 0xFF) })
                     DebugLogState.add("WS <<", cmd)
                     when (cmd) {
                         "d_sys_state" -> listener?.onSysState(parseSysState(payload))
@@ -165,7 +111,7 @@ class GaggiuinoV3Client(private val host: String, private val port: Int = 80) {
 
     private fun send(cmd: String, payload: ByteArray? = null) {
         val msg = ProtoCodec.buildCommand(cmd, payload)
-        val hex = msg.toHex()
+        val hex = msg.joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         ApiDebugLogger.logResponse("WS >> $cmd", msg.size, hex)
         DebugLogState.add("WS >>", cmd)
         webSocket?.send(ByteString.of(*msg))

@@ -2,10 +2,10 @@ package com.gagmate.app.data.repository
 
 import android.content.Context
 import com.gagmate.app.data.local.AppDatabase
+import com.gagmate.app.data.session.MachineSessionManager
 
 /**
- * Simple service locator – keeps a single instance of the database,
- * local-data repository and sync manager alive for the app's lifetime.
+ * Simple service locator – keeps global singletons for the app's lifetime.
  *
  * Initialised from [com.gagmate.app.MainActivity].
  */
@@ -20,6 +20,18 @@ object AppContainer {
     lateinit var syncManager: SyncManager
         private set
 
+    /** Global WebSocket session to the Gaggiuino machine. */
+    lateinit var machineSession: MachineSessionManager
+        private set
+
+    /** Repository for live sensor data (subscribes to [machineSession]). */
+    lateinit var sensorRepo: SensorRepository
+        private set
+
+    /** Repository for live brew shot data. */
+    lateinit var shotRepo: ShotRepository
+        private set
+
     /** True after [init] completes. */
     var isInitialised: Boolean = false
         private set
@@ -28,6 +40,11 @@ object AppContainer {
         db = AppDatabase.getInstance(context)
         localRepo = LocalDataRepository(db)
         syncManager = SyncManager(localRepo, MachineRepository())
+
+        machineSession = MachineSessionManager()
+        sensorRepo = SensorRepository(machineSession)
+        shotRepo = ShotRepository(machineSession)
+
         isInitialised = true
     }
 }
