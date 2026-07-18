@@ -26,6 +26,10 @@ data class ShotRecord(
     val profile: String = "",
     val duration: Float = 0f,
     val volume: Float = 0f,
+    val bean: String = "",
+    val roastDate: Long = 0L,
+    val dose: Float = 0f,
+    val yield: Float = 0f,
     val data: List<ShotDataPoint> = emptyList()
 )
 

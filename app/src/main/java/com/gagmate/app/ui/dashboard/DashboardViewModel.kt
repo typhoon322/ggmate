@@ -146,19 +146,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // Fetch profile name once via REST (non-real-time)
+        // Profile name from WebSocket d_prof_dict (active profile)
         viewModelScope.launch {
-            try {
-                val response = com.gagmate.app.data.api.GgboardApiClient.getApi().getMachineState()
-                if (response.isSuccessful) {
-                    val restState = response.body()?.firstOrNull()
-                    if (restState != null) {
-                        _machineState.value = _machineState.value.copy(
-                            profileName = restState.profileName
-                        )
-                    }
+            session.selectedProfileName.collect { name ->
+                if (name.isNotEmpty()) {
+                    _machineState.value = _machineState.value.copy(profileName = name)
                 }
-            } catch (_: Exception) { }
+            }
         }
     }
 

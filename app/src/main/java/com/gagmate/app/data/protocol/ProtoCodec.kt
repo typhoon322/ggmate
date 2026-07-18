@@ -81,7 +81,7 @@ object ProtoCodec {
      */
     fun toHexString(data: ByteArray): String = data.toHex()
 
-    private fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
+    fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
         var value = 0L; var shift = 0; var pos = offset
         while (pos < data.size) {
             val byte = data[pos].toInt() and 0xFF

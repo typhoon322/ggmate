@@ -1,193 +1,107 @@
 package com.gagmate.app.data.session
 
-
-
 import com.gagmate.app.data.api.ApiDebugLogger
 import com.gagmate.app.data.api.GgboardApiClient
 import com.gagmate.app.data.model.ProfileRef
 import com.gagmate.app.data.protocol.*
 import com.gagmate.app.data.system.DebugLogState
 import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.*
 import okhttp3.*
 import okio.ByteString
 
-/**
- * Global singleton managing the WebSocket connection to the Gaggiuino machine.
- *
- * All real-time machine data flows through StateFlows exposed here.
- * ViewModels subscribe to these flows and should NOT manage their own WS connections.
- */
 class MachineSessionManager {
-
-    // ── Connection state ──────────────────────────────────────────
-
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
-
     private val _errorMessage = MutableStateFlow<String?>(null)
     val errorMessage: StateFlow<String?> = _errorMessage.asStateFlow()
 
-    // ── Real-time data sent from the machine ──────────────────────
+    private val _messages = MutableSharedFlow<ProtoMessage>(extraBufferCapacity = 64)
+    val messages: SharedFlow<ProtoMessage> = _messages.asSharedFlow()
 
     private val _machineState = MutableStateFlow(SystemState())
     val machineState: StateFlow<SystemState> = _machineState.asStateFlow()
-
     private val _sensorSnapshot = MutableStateFlow(SensorSnapshot())
     val sensorSnapshot: StateFlow<SensorSnapshot> = _sensorSnapshot.asStateFlow()
-
     private val _shotSnapshot = MutableStateFlow<ShotSnapshot?>(null)
     val shotSnapshot: StateFlow<ShotSnapshot?> = _shotSnapshot.asStateFlow()
-
     private val _currentProfiles = MutableStateFlow<List<ProfileRef>>(emptyList())
     val currentProfiles: StateFlow<List<ProfileRef>> = _currentProfiles.asStateFlow()
-
-    // ── Internals ────────────────────────────────────────────────
+    private val _selectedProfileName = MutableStateFlow("")
+    val selectedProfileName: StateFlow<String> = _selectedProfileName.asStateFlow()
 
     private var client: OkHttpClient? = null
     private var webSocket: WebSocket? = null
     private var scope: CoroutineScope? = null
     private var reconnectJob: Job? = null
-    private var host: String = ""
+    private var host = ""
+    private var reconnectAttempt = 0
 
     companion object {
-        private const val RECONNECT_DELAY_MS = 3000L
+        private const val INITIAL_RECONNECT_MS = 1000L
+        private const val MAX_RECONNECT_MS = 30000L
     }
 
-    /**
-     * Start the session: connect WebSocket and begin data flow.
-     * Call from Application or MainActivity lifecycle.
-     */
     fun start(applicationScope: CoroutineScope) {
-        scope = applicationScope
-        val url = GgboardApiClient.getCurrentBaseUrl()
-        host = url.removePrefix("http://").removeSuffix("/")
+        scope = applicationScope; reconnectAttempt = 0
+        host = GgboardApiClient.getCurrentBaseUrl().removePrefix("http://").removeSuffix("/")
         connect()
     }
 
-    /**
-     * Stop the session: disconnect WebSocket and cancel all coroutines.
-     */
     fun stop() {
-        reconnectJob?.cancel()
-        reconnectJob = null
-        webSocket?.close(1000, "App closing")
-        webSocket = null
-        client?.dispatcher?.executorService?.shutdown()
-        client = null
+        reconnectJob?.cancel(); reconnectJob = null
+        webSocket?.close(1000, "App closing"); webSocket = null
+        client?.dispatcher?.executorService?.shutdown(); client = null
         _connectionState.value = ConnectionState.DISCONNECTED
     }
 
     private fun connect() {
         val currentScope = scope ?: return
-        _connectionState.value = ConnectionState.CONNECTING
-        _errorMessage.value = null
-
-        client = OkHttpClient.Builder()
-            .readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS)
-            .build()
-
-        val request = Request.Builder().url("ws://$host/ws").build()
-        webSocket = client?.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, response: Response) {
-                _connectionState.value = ConnectionState.CONNECTED
-                DebugLogState.add("WS", "Connected to $host")
-            }
-
+        _connectionState.value = ConnectionState.CONNECTING; _errorMessage.value = null
+        client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
+        webSocket = client?.newWebSocket(Request.Builder().url("ws://$host/ws").build(), object : WebSocketListener() {
+            override fun onOpen(ws: WebSocket, res: Response) { reconnectAttempt = 0; _connectionState.value = ConnectionState.CONNECTED }
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 val data = bytes.toByteArray()
-                ApiDebugLogger.logResponse("WS <<", bytes.size, bytes.toByteArray().joinToString("") { b -> java.lang.String.format("%02x", b.toInt() and 0xFF) })
-
+                val hex = data.joinToString("") { b -> java.lang.String.format("%02x", b.toInt() and 0xFF) }
+                ApiDebugLogger.logResponse("WS <<", bytes.size, hex)
                 ProtoCodec.decodeResponse(data)?.let { (cmd, payload) ->
-                    ApiDebugLogger.logResponse("WS << $cmd", payload.size, ProtoCodec.toHexString(payload))
                     DebugLogState.add("WS <<", cmd)
-                    handleMessage(cmd, payload)
+                    val msg = parseProtoMessage(cmd, payload)
+                    handleMessage(msg)
+                    _messages.tryEmit(msg)
                 }
             }
-
-            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(ws: WebSocket, t: Throwable, res: Response?) {
                 _connectionState.value = ConnectionState.ERROR
                 _errorMessage.value = t.message ?: "WebSocket failure"
-                DebugLogState.add("WS", "Error: ${t.message}")
                 scheduleReconnect(currentScope)
             }
-
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.DISCONNECTED
-                DebugLogState.add("WS", "Closed: $reason")
             }
         })
     }
 
-    private fun handleMessage(cmd: String, payload: ByteArray) {
-        when (cmd) {
-            Commands.SYS_STATE -> {
-                _machineState.value = parseSysState(payload)
-            }
-            Commands.ACTIVE_PROFILE, Commands.PROFILE -> {
-                DebugLogState.add("WS", "active_profile ${payload.size}B")
-            }
-            Commands.SENSOR_SNAPSHOT -> {
-                parseSensorSnapshot(payload)?.let { _sensorSnapshot.value = it }
-            }
-            Commands.PROFILE_DICT -> {
-                _currentProfiles.value = parseProfileDict(payload)
-            }
-            Commands.SHOT_HISTORY_INDEX -> {
-                // Shot sync handled by SyncManager via REST API
-            }
-            Commands.SETTINGS -> {
-                // Settings parsed but handled by SettingsRepository
-            }
-            Commands.SHOT_SNAPSHOT -> {
-                _shotSnapshot.value = parseShotSnapshot(payload)
-            }
-        }
-    }
+    private fun handleMessage(msg: ProtoMessage) { when (msg) {
+        is SystemStateMsg -> _machineState.value = msg.value
+        is SensorSnapshotMsg -> _sensorSnapshot.value = msg.value
+        is ShotSnapshotMsg -> _shotSnapshot.value = msg.value
+        is ProfileDictMsg -> { _currentProfiles.value = msg.profiles; msg.profiles.firstOrNull { it.isSelected }?.let { _selectedProfileName.value = it.name } }
+        is ActiveProfileMsg -> DebugLogState.add("WS", "active_profile ${msg.name}")
+        is UnknownMsg -> DebugLogState.add("WS", "unhandled: ${msg.command}")
+        else -> {}
+    } }
 
     private fun scheduleReconnect(currentScope: CoroutineScope) {
         reconnectJob?.cancel()
-        reconnectJob = currentScope.launch {
-            delay(RECONNECT_DELAY_MS)
-            connect()
-        }
+        val delayMs = if (reconnectAttempt == 0) INITIAL_RECONNECT_MS
+            else minOf(INITIAL_RECONNECT_MS * (1L shl minOf(reconnectAttempt - 1, 5)), MAX_RECONNECT_MS)
+        reconnectJob = currentScope.launch { delay(delayMs); reconnectAttempt++; connect() }
     }
 
-    // ── Command sending ──────────────────────────────────────────
-
-    /**
-     * Select a profile on the machine.
-     */
-    fun selectProfile(profileId: Int) {
-        val msg = Commands.buildSelectProfile(profileId)
-        sendRaw(msg)
-        DebugLogState.add("WS >>", "${Commands.SELECT_PROFILE} $profileId")
-    }
-
-    /**
-     * Set operation mode (flush, descale, tare).
-     */
-    fun setOpMode(mode: Int) {
-        val msg = Commands.buildOpMode(mode)
-        sendRaw(msg)
-    }
-
-    /**
-     * Request settings from the machine.
-     */
-    fun requestSettings() {
-        val msg = Commands.buildGetSettings()
-        sendRaw(msg)
-        DebugLogState.add("WS >>", "g_settings")
-    }
-
-    /**
-     * Send a raw command frame.
-     */
-    private fun sendRaw(data: ByteArray) {
-        webSocket?.send(ByteString.of(*data))
-        DebugLogState.add("WS >>", "frame ${data.size}B")
-    }
+    fun selectProfile(profileId: Int) { sendRaw(Commands.buildSelectProfile(profileId)) }
+    fun setOpMode(mode: Int) { sendRaw(Commands.buildOpMode(mode)) }
+    fun requestSettings() { sendRaw(Commands.buildGetSettings()) }
+    private fun sendRaw(data: ByteArray) { webSocket?.send(ByteString.of(*data)); DebugLogState.add("WS >>", "frame ${data.size}B") }
 }
