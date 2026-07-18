@@ -67,11 +67,7 @@ fun ProfilesScreen(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            val result = viewModel.importProfileFromJson(context, it)
-            if (result == null) {
-                errorMessage = context.getString(R.string.profiles_parse_error)
-                showImportError = true
-            }
+            viewModel.importProfileFromJson(context, it)
         }
     }
 
@@ -229,18 +225,10 @@ fun ProfilesScreen(
                     jsonText = pasteJsonText,
                     onJsonTextChange = { pasteJsonText = it },
                     onConfirm = {
-                        val count = viewModel.importProfileFromJsonString(context, pasteJsonText)
-                        when {
-                            count <= 0 -> {
-                                errorMessage = context.getString(R.string.profiles_parse_error_multiple)
-                                showImportError = true
-                            }
-                            count > 1 -> {
-                                errorMessage = context.getString(R.string.profiles_imported_count, count)
-                                showImportError = true
-                                viewModel.loadProfiles()
-                            }
-                        }
+                        viewModel.importProfileFromJsonString(pasteJsonText)
+                        showPasteDialog = false
+                        pasteJsonText = ""
+                        viewModel.loadProfiles()
                         showPasteDialog = false
                         pasteJsonText = ""
                     },

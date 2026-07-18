@@ -9,7 +9,8 @@ import com.gagmate.app.data.model.ShotProfile
 /**
  * Repository for accessing Gaggiuino v3 machine data via REST API.
  *
- * Brew control commands are NOT available via REST – they require WebSocket.
+ * Real-time data and control commands go through WebSocket ([MachineSessionManager]).
+ * REST is used only for non-real-time operations: history, configuration, uploads.
  */
 class MachineRepository {
 
@@ -35,15 +36,10 @@ class MachineRepository {
         }
     }
 
-    /** POST /api/profile-select/{id} → select an active profile. */
-    suspend fun selectProfile(profileId: Int): Result<Unit> = runCatching {
-        val response = api.selectProfile(profileId)
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
-    /** DELETE /api/profile-select/{id} → delete a profile. */
+    /**
+     * DELETE /api/profile-select/{id} → delete a profile from the machine.
+     * Profile activation/selection now goes through WebSocket c_upd_act_prof_id.
+     */
     suspend fun deleteProfile(profileId: Int): Result<Unit> = runCatching {
         val response = api.deleteProfile(profileId)
         if (!response.isSuccessful) {

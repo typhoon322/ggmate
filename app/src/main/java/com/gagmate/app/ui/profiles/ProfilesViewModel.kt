@@ -6,16 +6,8 @@ import androidx.lifecycle.AndroidViewModel
 import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.local.entity.ProfileEntity
-import com.gagmate.app.data.local.entity.SyncStatus
-import com.gagmate.app.data.model.BrewPhase
-import com.gagmate.app.data.model.ShotProfile
 import com.gagmate.app.R
 import com.gagmate.app.data.repository.AppContainer
-import com.gagmate.app.data.repository.MachineRepository
-import com.gagmate.app.data.repository.LocalDataRepository
-import com.gagmate.app.data.repository.SyncManager
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -23,23 +15,16 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import java.io.BufferedReader
 import java.io.InputStreamReader
-import java.io.File
-import java.util.UUID
 
 /**
  * ViewModel for the Profiles screen.
  *
- * Primary data source is the local Room database (offline-first).
- * Profile activation/selection goes through WebSocket ([MachineSessionManager]).
- * Non-real-time reads (list, detail) use REST API.
+ * Business logic is delegated to [ProfileRepository].
+ * This ViewModel manages UI state (loading, errors, sync messages) only.
  */
 class ProfilesViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val localRepo: LocalDataRepository = AppContainer.localRepo
-    private val machineRepo = MachineRepository()
-    private val syncManager: SyncManager = AppContainer.syncManager
-    private val machineSession = AppContainer.machineSession
-    private val gson = Gson()
+    private val profileRepo = AppContainer.profileRepo
 
     private val _profiles = MutableStateFlow<List<ProfileEntity>>(emptyList())
     val profiles: StateFlow<List<ProfileEntity>> = _profiles.asStateFlow()
@@ -53,10 +38,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     private val _pendingUploadCount = MutableStateFlow(0)
     val pendingUploadCount: StateFlow<Int> = _pendingUploadCount.asStateFlow()
 
-    private fun appString(resId: Int, vararg args: Any?): String {
-        return getApplication<Application>().getString(resId, *args)
-    }
-
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
@@ -65,220 +46,127 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     init {
         viewModelScope.launch {
-            localRepo.profilesFlow.collectLatest { list ->
+            profileRepo.profilesFlow.collectLatest { list ->
                 _profiles.value = list
             }
         }
         viewModelScope.launch {
-            localRepo.pendingUploadCount.collectLatest { count ->
+            profileRepo.pendingUploadCount.collectLatest { count ->
                 _pendingUploadCount.value = count
             }
         }
     }
 
-    // ── Load / sync ────────────────────────────────────────────────
+    // ── Actions ──────────────────────────────────────────────────
 
     fun loadProfiles() {
         viewModelScope.launch {
             _isLoading.value = true
-            syncProfiles()
+            val result = profileRepo.syncFromMachine()
             _isLoading.value = false
-        }
-    }
-
-    fun syncProfiles() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            _error.value = null
-            val result = syncManager.fullSync()
-            _isSyncing.value = false
             if (result.errors.isNotEmpty()) {
                 _error.value = result.errors.joinToString("; ")
             } else if (result.profilesAdded > 0 || result.profilesConflicted > 0 || result.profilesUploaded > 0) {
-                _syncMessage.value = appSyncSummary(result)
+                _syncMessage.value = syncSummary(result)
             }
         }
     }
 
-    fun uploadPending() {
-        viewModelScope.launch {
-            _isSyncing.value = true
-            _error.value = null
-            val result = syncManager.uploadPendingProfiles()
-            _isSyncing.value = false
-            if (result.errors.isNotEmpty()) {
-                _error.value = result.errors.joinToString("; ")
-            } else if (result.profilesUploaded > 0) {
-                _syncMessage.value = "${result.profilesUploaded} profile(s) uploaded"
-                syncProfiles()
-            }
-        }
-    }
-
-    // ── Profile activation (via WebSocket) ─────────────────────────
-
-    /**
-     * Select and activate a profile on the machine via WebSocket.
-     * Replaces REST-based POST /api/profile-select/{id}.
-     */
     fun selectProfile(machineProfileId: Int) {
         try {
-            machineSession.selectProfile(machineProfileId)
+            profileRepo.activateProfile(machineProfileId)
             _syncMessage.value = "Profile activated"
         } catch (e: Exception) {
             _error.value = "Failed to activate profile: ${e.message}"
         }
     }
 
-    // ── Delete (REST fallback) ────────────────────────────────────
-
     fun deleteProfile(profileId: String) {
         viewModelScope.launch {
-            val entity = localRepo.getProfileById(profileId)
-            if (entity == null) return@launch
-            localRepo.deleteProfile(profileId)
-            val machineId = entity.machineProfileId
-            if (machineId != null && entity.syncStatus != SyncStatus.LOCAL_ONLY) {
-                machineRepo.deleteProfile(machineId.toIntOrNull() ?: return@launch)
-            }
+            val entity = profileRepo.getProfileById(profileId) ?: return@launch
+            profileRepo.deleteProfile(profileId)
         }
     }
 
-    // ── Import ──────────────────────────────────────────────────────
+    // ── Import ──────────────────────────────────────────────────
 
-    fun importProfileFromJson(context: Context, uri: Uri): Int {
-        return try {
-            val inputStream = context.contentResolver.openInputStream(uri)
-            val reader = BufferedReader(InputStreamReader(inputStream))
-            val jsonText = reader.readText()
-            reader.close()
-            inputStream?.close()
-            val shotProfiles = parseProfilesJson(jsonText)
-            val count = shotProfiles.size
-            viewModelScope.launch {
-                shotProfiles.forEach { sp -> localRepo.putLocalProfile(sp) }
-            }
-            count
-        } catch (e: Exception) {
-            _error.value = appString(R.string.profiles_import_failed) + ": ${e.message}"
-            0
-        }
-    }
-
-    fun importProfileFromJsonString(context: Context, jsonText: String): Int {
-        return try {
-            val shotProfiles = parseProfilesJson(jsonText)
-            val count = shotProfiles.size
-            viewModelScope.launch {
-                shotProfiles.forEach { sp -> localRepo.putLocalProfile(sp) }
-            }
-            count
-        } catch (e: Exception) {
-            _error.value = appString(R.string.profiles_import_failed) + ": ${e.message}"
-            0
-        }
-    }
-
-    private fun parseProfilesJson(jsonText: String): List<ShotProfile> {
-        return try {
-            listOfNotNull(gson.fromJson(jsonText, ShotProfile::class.java))
-        } catch (e: Exception) {
+    fun importProfileFromJson(context: Context, uri: Uri) {
+        viewModelScope.launch {
             try {
-                val listType = object : TypeToken<List<ShotProfile>>() {}.type
-                val profiles: List<ShotProfile> = gson.fromJson(jsonText, listType)
-                if (profiles.isNotEmpty()) profiles else throw Exception("Empty array")
-            } catch (e2: Exception) {
-                try {
-                    val mapType = object : TypeToken<Map<String, Any>>() {}.type
-                    val map: Map<String, Any> = gson.fromJson(jsonText, mapType)
-                    val profileObj = map["profile"] ?: map["profiles"]
-                    if (profileObj != null) {
-                        try {
-                            listOfNotNull(gson.fromJson(gson.toJson(profileObj), ShotProfile::class.java))
-                        } catch (e3: Exception) {
-                            try {
-                                val innerType = object : TypeToken<List<ShotProfile>>() {}.type
-                                gson.fromJson<List<ShotProfile>>(gson.toJson(profileObj), innerType)
-                            } catch (e4: Exception) { emptyList() }
-                        }
-                    } else emptyList()
-                } catch (e3: Exception) {
-                    try {
-                        val parts = jsonText.split(Regex("\\}\\s*\\{"))
-                        if (parts.size < 2) {
-                            val normalized = jsonText.replace("\\r\\n", "\\n").replace("\\r", "\\n")
-                            val parts2 = normalized.split(Regex("\\}\\s*\\\\n+\\s*\\{"))
-                            if (parts2.size < 2) emptyList() else parseSegments(parts2)
-                        } else { parseSegments(parts) }
-                    } catch (e4: Exception) { emptyList() }
-                }
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val reader = BufferedReader(InputStreamReader(inputStream))
+                val jsonText = reader.readText()
+                reader.close(); inputStream?.close()
+                profileRepo.importFromJson(jsonText)
+            } catch (e: Exception) {
+                _error.value = "Import failed: ${e.message}"
             }
         }
     }
 
-    private fun parseSegments(parts: List<String>): List<ShotProfile> {
-        val segments = parts.mapIndexed { index, segment ->
-            when (index) {
-                0 -> segment.trim() + "}"
-                parts.size - 1 -> "{" + segment.trim()
-                else -> "{" + segment.trim() + "}"
+    fun importProfileFromJsonString(jsonText: String) {
+        viewModelScope.launch {
+            try {
+                profileRepo.importFromJson(jsonText)
+            } catch (e: Exception) {
+                _error.value = "Import failed: ${e.message}"
             }
         }
-        return segments.mapNotNull { seg ->
-            try { gson.fromJson(seg, ShotProfile::class.java) }
-            catch (e: Exception) { null }
+    }
+
+    // ── Export ──────────────────────────────────────────────────
+
+    fun exportProfileAsJson(entity: ProfileEntity): String =
+        profileRepo.exportAsJson(entity)
+
+    // ── Save ───────────────────────────────────────────────────
+
+    fun saveEditedProfile(entity: ProfileEntity) {
+        viewModelScope.launch {
+            val msg = profileRepo.saveEditedProfile(entity)
+            _syncMessage.value = msg ?: "Profile saved and uploaded"
         }
     }
 
-    // ── Export ──────────────────────────────────────────────────────
-
-    fun exportProfileAsJson(entity: ProfileEntity): String {
-        return gson.toJson(entity.toShotProfile())
-    }
+    // ── Sample ─────────────────────────────────────────────────
 
     fun createSampleProfile(): ProfileEntity {
-        val sp = ShotProfile(
+        val sp = com.gagmate.app.data.model.ShotProfile(
             name = "Classic Espresso",
             author = "GagMate",
             notes = "A classic 9-bar espresso profile",
             phases = listOf(
-                BrewPhase(name = "Preinfusion", type = "pressure", target = 3.0f, time = 8f, condition = "time", nextPhase = "Ramp"),
-                BrewPhase(name = "Ramp", type = "pressure", target = 9.0f, time = 4f, condition = "time", nextPhase = "Extraction"),
-                BrewPhase(name = "Extraction", type = "pressure", target = 9.0f, time = 25f, condition = "time", nextPhase = "Finish"),
-                BrewPhase(name = "Finish", type = "pressure", target = 0f, time = 2f, condition = "time", nextPhase = "")
+                com.gagmate.app.data.model.BrewPhase(name = "Preinfusion", type = "pressure", target = 3.0f, time = 8f, condition = "time", nextPhase = "Ramp"),
+                com.gagmate.app.data.model.BrewPhase(name = "Ramp", type = "pressure", target = 9.0f, time = 4f, condition = "time", nextPhase = "Extraction"),
+                com.gagmate.app.data.model.BrewPhase(name = "Extraction", type = "pressure", target = 9.0f, time = 25f, condition = "time", nextPhase = "Finish"),
+                com.gagmate.app.data.model.BrewPhase(name = "Finish", type = "pressure", target = 0f, time = 2f, condition = "time", nextPhase = "")
             )
         )
-        val entity = ProfileEntity.fromProfile(sp)
-        viewModelScope.launch { localRepo.saveProfile(entity) }
+        val entity = com.gagmate.app.data.local.entity.ProfileEntity.fromProfile(sp)
+        viewModelScope.launch { AppContainer.localRepo.saveProfile(entity) }
         return entity
     }
 
-    // ── Edit ────────────────────────────────────────────────────────
+    // ── Upload ─────────────────────────────────────────────────
 
-    fun saveEditedProfile(entity: ProfileEntity) {
+    fun uploadPending() {
         viewModelScope.launch {
-            val updated = entity.copy(
-                syncStatus = if (entity.syncStatus == SyncStatus.SYNCED) SyncStatus.MODIFIED else entity.syncStatus,
-                localUpdatedAt = System.currentTimeMillis()
-            )
-            localRepo.saveProfile(updated)
-            try {
-                val profile = updated.toShotProfile()
-                machineRepo.uploadProfile(profile).onSuccess {
-                    localRepo.markProfileSynced(updated.id, profile.profileId ?: updated.machineProfileId)
-                    _syncMessage.value = "Profile saved and uploaded"
-                }.onFailure { e ->
-                    _syncMessage.value = "Saved locally (upload pending: ${e.message ?: "unknown"})"
-                }
-            } catch (e: Exception) {
-                _syncMessage.value = "Saved locally (upload pending: ${e.message ?: "unknown"})"
+            _isSyncing.value = true
+            _error.value = null
+            val result = profileRepo.uploadPending()
+            _isSyncing.value = false
+            if (result.errors.isNotEmpty()) {
+                _error.value = result.errors.joinToString("; ")
+            } else if (result.profilesUploaded > 0) {
+                _syncMessage.value = "${result.profilesUploaded} profile(s) uploaded"
+                loadProfiles()
             }
         }
     }
 
-    // ── Helpers ─────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────
 
-    private fun appSyncSummary(result: SyncManager.SyncResult): String {
+    private fun syncSummary(result: com.gagmate.app.data.repository.SyncManager.SyncResult): String {
         val parts = mutableListOf<String>()
         if (result.profilesAdded > 0) parts.add("+${result.profilesAdded} downloaded")
         if (result.profilesConflicted > 0) parts.add("${result.profilesConflicted} conflict(s)")

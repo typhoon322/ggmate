@@ -32,6 +32,10 @@ object AppContainer {
     lateinit var shotRepo: ShotRepository
         private set
 
+    /** Repository for profile management. */
+    lateinit var profileRepo: ProfileRepository
+        private set
+
     /** True after [init] completes. */
     var isInitialised: Boolean = false
         private set
@@ -44,6 +48,7 @@ object AppContainer {
         machineSession = MachineSessionManager()
         sensorRepo = SensorRepository(machineSession)
         shotRepo = ShotRepository(machineSession)
+        profileRepo = ProfileRepository(localRepo, MachineRepository(), machineSession, syncManager)
 
         isInitialised = true
     }
