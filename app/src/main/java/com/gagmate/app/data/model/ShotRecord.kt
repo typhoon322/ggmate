@@ -76,10 +76,10 @@ data class ShotRecordApi(
             ShotDataPoint(
                 time = datapoints.timeInShot.getOrElse(i) { 0 } / 10f,
                 pressure = datapoints.pressure.getOrElse(i) { 0 } / 10f,
-                flow = datapoints.pumpFlow.getOrElse(i) { 0 }.toFloat(),
+                flow = datapoints.pumpFlow.getOrElse(i) { 0 } / 10f,
                 temperature = datapoints.temperature.getOrElse(i) { 0 } / 10f,
                 targetPressure = datapoints.targetPressure.getOrElse(i) { 0 } / 10f,
-                targetFlow = datapoints.targetPumpFlow.getOrElse(i) { 0 }.toFloat(),
+                targetFlow = datapoints.targetPumpFlow.getOrElse(i) { 0 } / 10f,
                 weight = datapoints.weightFlow.getOrElse(i) { 0 } / 10f,
                 targetTemperature = datapoints.targetTemperature.getOrElse(i) { 0 } / 10f
             )
@@ -89,7 +89,7 @@ data class ShotRecordApi(
             timestamp = timestamp * 1000L,  // API is seconds → millis
             profile = profile?.name ?: "",
             duration = durationSec,
-            volume = datapoints.weightFlow.lastOrNull()?.toFloat() ?: 0f,
+            volume = (datapoints.weightFlow.lastOrNull() ?: 0) / 10f,
             data = points
         )
     }

@@ -60,8 +60,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     // ── Actions ──────────────────────────────────────────────────
 
     fun loadProfiles() {
+        // Local data already flowing via profilesFlow in init{}
+        _isLoading.value = true
         viewModelScope.launch {
-            _isLoading.value = true
             val result = profileRepo.syncFromMachine()
             _isLoading.value = false
             if (result.errors.isNotEmpty()) {

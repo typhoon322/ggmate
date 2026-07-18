@@ -43,20 +43,21 @@ class ShotHistoryViewModel(application: Application) : AndroidViewModel(applicat
     }
 
     fun loadShots() {
+        // Show local data immediately
+        _isLoading.value = true
         viewModelScope.launch {
-            _isLoading.value = true
-            // Read from local DB immediately, newest first
             val local = localRepo.getAllShots()
             _shots.value = local.sortedByDescending { it.timestamp }
+            _isLoading.value = false
             _error.value = null
-
-            // Sync from machine in background
+        }
+        // Sync from machine in background (don't block UI)
+        viewModelScope.launch {
             try {
                 AppContainer.syncManager.fullSync()
             } catch (e: Exception) {
                 // silent – local data is already displayed
             }
-            _isLoading.value = false
         }
     }
 
