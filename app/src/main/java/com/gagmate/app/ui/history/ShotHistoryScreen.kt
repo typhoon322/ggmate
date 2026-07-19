@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FileDownload
+import androidx.compose.material.icons.filled.OpenInFull
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
@@ -207,6 +208,10 @@ private fun ShotHistoryCard(
                     }
                     IconButton(onClick = onExport, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.history_export),
+                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                    }
+                    IconButton(onClick = onFullScreen, modifier = Modifier.size(32.dp)) {
+                        Icon(Icons.Default.OpenInFull, contentDescription = "Full screen chart",
                             tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
                     IconButton(onClick = {

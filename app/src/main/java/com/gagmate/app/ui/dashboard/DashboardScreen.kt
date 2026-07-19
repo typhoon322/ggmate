@@ -153,6 +153,14 @@ fun DashboardScreen(
                     ) {
                         // Machine status bar
                         item {
+                            // DEBUG: raw data diagnostic
+                            Text(
+                                text = "DBG: t=${machineState?.temperatureStr ?: "?"} P=${machineState?.pressureStr ?: "?"} W=${machineState?.waterLevel ?: "?"}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.outline,
+                                modifier = Modifier.padding(bottom = 4.dp)
+                            )
+                            // Machine status bar
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween,
