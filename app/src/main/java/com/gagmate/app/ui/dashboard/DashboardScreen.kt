@@ -36,14 +36,38 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = viewModel(),
     onOpenSettings: () -> Unit = {}
 ) {
-    // ── Direct session reads (bypass ViewModel) ─────────────────
+    // ── Direct session reads via LaunchedEffect + mutableStateOf ──
     val session = AppContainer.machineSession
-    val directSensor by session.sensorSnapshot.collectAsState()
-    val directSysState by session.machineState.collectAsState()
-    val directConnState by session.connectionState.collectAsState()
-    val directBrewActive by session.brewActive.collectAsState()
-    val directProfileName by session.selectedProfileName.collectAsState()
-    val directMode by session.machineMode.collectAsState()
+    var directSensorT by remember { mutableStateOf(0f) }
+    var directSensorP by remember { mutableStateOf(0f) }
+    var directSensorTT by remember { mutableStateOf(0f) }
+    var directSensorWL by remember { mutableStateOf(0) }
+    var directBrewActive by remember { mutableStateOf(false) }
+    var directProfileName by remember { mutableStateOf("") }
+    var directMode by remember { mutableStateOf(0) }
+    var directConnState by remember { mutableStateOf(ConnectionState.DISCONNECTED) }
+    var directUptime by remember { mutableStateOf(0) }
+
+    LaunchedEffect(Unit) {
+        session.sensorSnapshot.collect { s ->
+            directSensorT = s.temperature
+            directSensorP = s.pressure
+            directSensorTT = s.targetTemperature
+            directSensorWL = s.waterLevel
+        }
+    }
+    LaunchedEffect(Unit) {
+        session.brewActive.collect { directBrewActive = it }
+    }
+    LaunchedEffect(Unit) {
+        session.selectedProfileName.collect { directProfileName = it }
+    }
+    LaunchedEffect(Unit) {
+        session.machineMode.collect { directMode = it }
+    }
+    LaunchedEffect(Unit) {
+        session.connectionState.collect { directConnState = it }
+    }
     val isConnected = directConnState == ConnectionState.CONNECTED
     val isLoading = directConnState == ConnectionState.CONNECTING
     val flushActive = directMode == 2
@@ -166,7 +190,7 @@ fun DashboardScreen(
                         item {
                             // DEBUG: raw data diagnostic
                             Text(
-                                text = "DBG: t=${"%.1f".format(directSensor.temperature)}C P=${"%.2f".format(directSensor.pressure)}bar W=${directSensor.waterLevel}%",
+                                text = "DBG: t=${"%.1f".format(directSensorT)}C P=${"%.2f".format(directSensorP)}bar W=${directSensorWL}%",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.padding(bottom = 4.dp)
@@ -267,7 +291,7 @@ fun DashboardScreen(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
-                                            text = String.format("%.0f°C", directSensor.targetTemperature ?: 0f),
+                                            text = String.format("%.0f°C", directSensorTT ?: 0f),
                                             style = MaterialTheme.typography.titleLarge,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
@@ -275,7 +299,7 @@ fun DashboardScreen(
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val newVal = (directSensor.targetTemperature ?: 93f) - 1f
+                                                    val newVal = (directSensorTT ?: 93f) - 1f
                                                     viewModel.setSetpoint(newVal)
                                                 },
                                                 modifier = Modifier.size(40.dp),
@@ -286,7 +310,7 @@ fun DashboardScreen(
                                             }
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val newVal = (directSensor.targetTemperature ?: 93f) + 1f
+                                                    val newVal = (directSensorTT ?: 93f) + 1f
                                                     viewModel.setSetpoint(newVal)
                                                 },
                                                 modifier = Modifier.size(40.dp),
@@ -384,7 +408,7 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 GaugeView(
-                                    value = directSensor.temperature ?: 0f,
+                                    value = directSensorT ?: 0f,
                                     maxValue = 110f,
                                     label = stringResource(R.string.dashboard_boiler_t),
                                     unit = "\u00B0C",
@@ -406,7 +430,7 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 GaugeView(
-                                    value = directSensor.pressure ?: 0f,
+                                    value = directSensorP ?: 0f,
                                     maxValue = 12f,
                                     label = "Pressure",
                                     unit = "bar",
@@ -488,7 +512,7 @@ fun DashboardScreen(
                                         )
                                         MetricItem(
                                             label = "Setpoint",
-                                            value = String.format("%.0f\u00B0C", directSensor.targetTemperature ?: 0f)
+                                            value = String.format("%.0f\u00B0C", directSensorTT ?: 0f)
                                         )
                                     }
                                     // Phase info requires WebSocket
