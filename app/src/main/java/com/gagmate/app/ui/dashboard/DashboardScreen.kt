@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.R
+import android.util.Log
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.data.session.ConnectionState
 import com.gagmate.app.theme.*
@@ -48,25 +49,50 @@ fun DashboardScreen(
     var directConnState by remember { mutableStateOf(ConnectionState.DISCONNECTED) }
     var directUptime by remember { mutableStateOf(0) }
 
+    // Log displayed values (runs on every recomposition)
+    SideEffect {
+        Log.d("GagMateUI", "DISPLAY: T=${directSensorT} P=${directSensorP} WL=${directSensorWL} mode=${directMode} prof=${directProfileName}")
+    }
+
+    // Collect sensor data
     LaunchedEffect(Unit) {
-        session.sensorSnapshot.collect { s ->
-            directSensorT = s.temperature
-            directSensorP = s.pressure
-            directSensorTT = s.targetTemperature
-            directSensorWL = s.waterLevel
+        Log.d("GagMateUI", "LAUNCH: sensorSnapshot collect starting")
+        try {
+            session.sensorSnapshot.collect { s ->
+                Log.d("GagMateUI", "SENSOR: T=${s.temperature} P=${s.pressure} WL=${s.waterLevel}")
+                directSensorT = s.temperature
+                directSensorP = s.pressure
+                directSensorTT = s.targetTemperature
+                directSensorWL = s.waterLevel
+            }
+        } catch (e: Exception) {
+            Log.e("GagMateUI", "sensor collect CRASH", e)
         }
     }
     LaunchedEffect(Unit) {
+        Log.d("GagMateUI", "LAUNCH: brewActive collect")
         session.brewActive.collect { directBrewActive = it }
     }
     LaunchedEffect(Unit) {
-        session.selectedProfileName.collect { directProfileName = it }
+        Log.d("GagMateUI", "LAUNCH: profileName collect")
+        session.selectedProfileName.collect { 
+            Log.d("GagMateUI", "PROFILE: ${it}")
+            directProfileName = it 
+        }
     }
     LaunchedEffect(Unit) {
-        session.machineMode.collect { directMode = it }
+        Log.d("GagMateUI", "LAUNCH: machineMode collect")
+        session.machineMode.collect { 
+            Log.d("GagMateUI", "MODE: ${it}")
+            directMode = it 
+        }
     }
     LaunchedEffect(Unit) {
-        session.connectionState.collect { directConnState = it }
+        Log.d("GagMateUI", "LAUNCH: connState collect")
+        session.connectionState.collect { 
+            Log.d("GagMateUI", "CONN: ${it}")
+            directConnState = it 
+        }
     }
     val isConnected = directConnState == ConnectionState.CONNECTED
     val isLoading = directConnState == ConnectionState.CONNECTING
