@@ -21,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.R
+import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.theme.*
 import com.gagmate.app.ui.components.GaugeView
 import com.gagmate.app.ui.components.MachineStatusBadge
@@ -42,6 +43,9 @@ fun DashboardScreen(
     val liveWeight by viewModel.liveWeight.collectAsState()
     val targetWeight by viewModel.targetWeight.collectAsState()
     val flushActive by viewModel.flushActive.collectAsState()
+
+    val directSensor by AppContainer.machineSession.sensorSnapshot.collectAsState()
+    val directSysState by AppContainer.machineSession.machineState.collectAsState()
 
     var steamOn by remember { mutableStateOf(false) }
 
@@ -155,7 +159,7 @@ fun DashboardScreen(
                         item {
                             // DEBUG: raw data diagnostic
                             Text(
-                                text = "DBG: t=${machineState?.temperatureStr ?: "?"} P=${machineState?.pressureStr ?: "?"} W=${machineState?.waterLevel ?: "?"}",
+                                text = "DBG: t=${"%.1f".format(directSensor.temperature)}(VM:${machineState?.temperatureStr}) P=${"%.2f".format(directSensor.pressure)} W=${directSensor.waterLevel}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.padding(bottom = 4.dp)
