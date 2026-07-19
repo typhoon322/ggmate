@@ -155,6 +155,7 @@ private fun ShotHistoryCard(
     onExport: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
+    val showDeleteConfirm = remember { mutableStateOf(false) }
 
     Card(
         onClick = onToggle,
@@ -167,10 +168,10 @@ private fun ShotHistoryCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(0.6f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
                     Icon(Icons.Default.Coffee, contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
-                    Spacer(Modifier.width(8.dp))
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                         Text(shot.profileName.ifEmpty { "Espresso" },
                             style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium,
@@ -197,11 +198,36 @@ private fun ShotHistoryCard(
                         Icon(Icons.Default.FileDownload, contentDescription = stringResource(R.string.history_export),
                             tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                    IconButton(onClick = {
+                        // Show confirmation dialog
+                        showDeleteConfirm.value = true
+                    }, modifier = Modifier.size(32.dp)) {
                         Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.history_delete),
                             tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
                     }
                 }
+            }
+
+            // Delete confirmation dialog
+            if (showDeleteConfirm.value) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm.value = false },
+                    title = { Text(stringResource(R.string.history_delete)) },
+                    text = { Text("Delete this shot record permanently?") },
+                    confirmButton = {
+                        TextButton(onClick = {
+                            showDeleteConfirm.value = false
+                            onDelete()
+                        }) {
+                            Text("Delete", color = MaterialTheme.colorScheme.error)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteConfirm.value = false }) {
+                            Text(stringResource(R.string.profiles_cancel))
+                        }
+                    }
+                )
             }
 
             // Expanded replay section

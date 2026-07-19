@@ -15,6 +15,7 @@ import com.gagmate.app.data.repository.MachineRepository
 import com.gagmate.app.data.repository.SettingsRepository
 import com.gagmate.app.data.api.NetworkLogger
 import com.gagmate.app.data.api.ApiDebugLogger
+import com.gagmate.app.data.system.CrashLogger
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -176,6 +177,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         context.startActivity(Intent.createChooser(intent, "Share Network Log"))
     }
 
+
+    fun shareCrashLog(context: Context) { CrashLogger.share(context) }
+    fun hasCrashLog(): Boolean = CrashLogger.hasLog()
+    fun clearCrashLog() { CrashLogger.clear() }
 
     fun clearLog() {
         NetworkLogger.clearLog()

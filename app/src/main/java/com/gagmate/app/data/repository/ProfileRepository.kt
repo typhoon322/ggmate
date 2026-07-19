@@ -8,6 +8,9 @@ import com.gagmate.app.data.session.MachineSessionManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -25,6 +28,27 @@ class ProfileRepository(
     private val syncManager: SyncManager
 ) {
     private val gson = Gson()
+    private val repoScope = CoroutineScope(SupervisorJob())
+
+    init {
+        // Subscribe to WS profile data: when d_prof/d_act_prof arrives via WebSocket,
+        // automatically update the local profile's phases
+        repoScope.launch {
+            session.profileDataReceived.collect { (name, phases) ->
+                try {
+                    val profiles = localRepo.getAllProfiles()
+                    val match = profiles.find { it.name == name }
+                    if (match != null) {
+                        val updated = match.copy(
+                            phasesJson = gson.toJson(phases),
+                            localUpdatedAt = System.currentTimeMillis()
+                        )
+                        localRepo.saveProfile(updated)
+                    }
+                } catch (_: Exception) { }
+            }
+        }
+    }
 
     // ── Observables ──────────────────────────────────────────────
 

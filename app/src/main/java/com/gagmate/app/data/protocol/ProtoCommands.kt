@@ -19,6 +19,9 @@ object Commands {
     const val SET_OP_MODE = "c_opmode"
 
     /** Request current settings from the machine. No payload. */
+    /** Request a specific profile's full data (with phases). */
+    const val GET_PROFILE = "g_prof"
+
     const val GET_SETTINGS = "g_settings"
 
     // ── Incoming (machine → client) ───────────────────────────────
@@ -68,6 +71,12 @@ object Commands {
         ProtoCodec.buildCommand(SET_OP_MODE, opModePayload(mode))
 
     /** Build the complete command frame for getting settings. */
+    /** Build the complete command frame for getting a specific profile. */
+    fun buildGetProfile(profileId: Int): ByteArray {
+        val payload = ProtoCodec.encodeVarintField(1, profileId.toLong())
+        return ProtoCodec.buildCommand(GET_PROFILE, payload)
+    }
+
     fun buildGetSettings(): ByteArray =
         ProtoCodec.buildCommand(GET_SETTINGS)
 }

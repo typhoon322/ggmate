@@ -264,6 +264,42 @@ fun SettingsScreen(
 
                     Divider(modifier = Modifier.padding(vertical = 4.dp))
 
+                    
+                    Divider(modifier = Modifier.padding(vertical = 4.dp))
+
+                    // Crash log export
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "Crash Log",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (viewModel.hasCrashLog()) {
+                                OutlinedButton(
+                                    onClick = { viewModel.shareCrashLog(context) },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Filled.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Export", style = MaterialTheme.typography.bodySmall)
+                                }
+                                OutlinedButton(
+                                    onClick = { viewModel.clearCrashLog() },
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Icon(Icons.Default.Close, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Clear", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+
                     // Network log export
                     Row(
                         modifier = Modifier.fillMaxWidth(),

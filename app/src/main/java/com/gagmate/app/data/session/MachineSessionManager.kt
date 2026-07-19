@@ -9,6 +9,36 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import okhttp3.*
 import okio.ByteString
+import com.google.gson.Gson
+import com.google.gson.JsonObject
+
+private val jsonGson = Gson()
+
+/** JSON WebSocket data models (Gen3 firmware text format). */
+private data class WsSensorJson(
+    val brewActive: Boolean = false,
+    val steamActive: Boolean = false,
+    val temperature: Float = 0f,
+    val targetTemperature: Float = 0f,
+    val pressure: Float = 0f,
+    val pumpFlow: Float = 0f,
+    val weightFlow: Float = 0f,
+    val weight: Float = 0f,
+    val waterLvl: Int = 0
+)
+
+private data class WsShotJson(
+    val timeInShot: Int = 0,
+    val pressure: Float = 0f,
+    val pumpFlow: Float = 0f,
+    val weightFlow: Float = 0f,
+    val temperature: Float = 0f,
+    val shotWeight: Float = 0f,
+    val waterPumped: Float = 0f,
+    val targetTemperature: Float = 0f,
+    val targetPumpFlow: Float = 0f,
+    val targetPressure: Float = 0f
+)
 
 class MachineSessionManager {
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
@@ -27,8 +57,15 @@ class MachineSessionManager {
     val shotSnapshot: StateFlow<ShotSnapshot?> = _shotSnapshot.asStateFlow()
     private val _currentProfiles = MutableStateFlow<List<ProfileRef>>(emptyList())
     val currentProfiles: StateFlow<List<ProfileRef>> = _currentProfiles.asStateFlow()
+    private val _brewActive = MutableStateFlow(false)
+    val brewActive: StateFlow<Boolean> = _brewActive.asStateFlow()
+
     private val _selectedProfileName = MutableStateFlow("")
     val selectedProfileName: StateFlow<String> = _selectedProfileName.asStateFlow()
+
+    /** Emitted when d_prof/d_act_prof provides full profile data (name, phases). */
+    private val _profileDataReceived = MutableSharedFlow<Pair<String, List<com.gagmate.app.data.model.BrewPhase>>>(extraBufferCapacity = 16)
+    val profileDataReceived: SharedFlow<Pair<String, List<com.gagmate.app.data.model.BrewPhase>>> = _profileDataReceived.asSharedFlow()
 
     private var client: OkHttpClient? = null
     private var webSocket: WebSocket? = null
@@ -61,6 +98,13 @@ class MachineSessionManager {
         client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
         webSocket = client?.newWebSocket(Request.Builder().url("ws://$host/ws").build(), object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, res: Response) { reconnectAttempt = 0; _connectionState.value = ConnectionState.CONNECTED }
+
+            // TEXT messages: Gen3 firmware sends JSON (same format as web UI)
+            override fun onMessage(ws: WebSocket, text: String) {
+                handleJsonMessage(text)
+            }
+
+            // BINARY messages: protobuf format (for profile commands etc.)
             override fun onMessage(ws: WebSocket, bytes: ByteString) {
                 val data = bytes.toByteArray()
                 val hex = data.joinToString("") { b -> java.lang.String.format("%02x", b.toInt() and 0xFF) }
@@ -83,12 +127,52 @@ class MachineSessionManager {
         })
     }
 
+    private fun handleJsonMessage(text: String) {
+        try {
+            val obj = jsonGson.fromJson(text, JsonObject::class.java) ?: return
+            val action = obj.get("action")?.asString ?: return
+            val data = obj.getAsJsonObject("data") ?: return
+
+            when (action) {
+                "sensor_data_update" -> {
+                    val sensor = jsonGson.fromJson(data, WsSensorJson::class.java)
+                    _sensorSnapshot.value = SensorSnapshot(
+                        temperature = sensor.temperature,
+                        targetTemperature = sensor.targetTemperature,
+                        pressure = sensor.pressure,
+                        waterLevel = sensor.waterLvl
+                    )
+                    _brewActive.value = sensor.brewActive
+                    _machineState.value = SystemState(state = if (sensor.brewActive) 1 else 0)
+                }
+                "shot_data_update" -> {
+                    val shot = jsonGson.fromJson(data, WsShotJson::class.java)
+                    _shotSnapshot.value = ShotSnapshot(
+                        timeInShot = shot.timeInShot,
+                        pressure = shot.pressure,
+                        flow = shot.pumpFlow,
+                        temperature = shot.temperature,
+                        weight = shot.shotWeight,
+                        waterPumped = shot.waterPumped
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            // Malformed JSON - ignore
+        }
+    }
+
     private fun handleMessage(msg: ProtoMessage) { when (msg) {
         is SystemStateMsg -> _machineState.value = msg.value
         is SensorSnapshotMsg -> _sensorSnapshot.value = msg.value
         is ShotSnapshotMsg -> _shotSnapshot.value = msg.value
         is ProfileDictMsg -> { _currentProfiles.value = msg.profiles; msg.profiles.firstOrNull { it.isSelected }?.let { _selectedProfileName.value = it.name } }
-        is ActiveProfileMsg -> DebugLogState.add("WS", "active_profile ${msg.name}")
+        is ActiveProfileMsg -> {
+            DebugLogState.add("WS", "active_profile ${msg.name}")
+            if (msg.phases.isNotEmpty()) {
+                _profileDataReceived.tryEmit(msg.name to msg.phases)
+            }
+        }
         is UnknownMsg -> DebugLogState.add("WS", "unhandled: ${msg.command}")
         else -> {}
     } }
@@ -101,6 +185,7 @@ class MachineSessionManager {
     }
 
     fun selectProfile(profileId: Int) { sendRaw(Commands.buildSelectProfile(profileId)) }
+    fun sendGetProfile(profileId: Int) { sendRaw(Commands.buildGetProfile(profileId)) }
     fun setOpMode(mode: Int) { sendRaw(Commands.buildOpMode(mode)) }
     fun requestSettings() { sendRaw(Commands.buildGetSettings()) }
     private fun sendRaw(data: ByteArray) { webSocket?.send(ByteString.of(*data)); DebugLogState.add("WS >>", "frame ${data.size}B") }

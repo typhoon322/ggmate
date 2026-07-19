@@ -218,3 +218,69 @@ private fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
     }
     return value to pos
 }
+
+
+/** Decode a single phase protobuf into (name, type, target, time). */
+private data class PhaseInfo(val name: String, val type: String, val end: Float, val timeMs: Int)
+
+private fun decodePhaseInfo(data: ByteArray): PhaseInfo? {
+    var offset = 0
+    var name = ""; var type = "pressure"; var end = 0f; var timeMs = 0
+    while (offset < data.size) {
+        val (tag, p1) = readVarint(data, offset); offset = p1
+        val fn = (tag shr 3).toInt(); val wt = (tag and 0x7).toInt()
+        when {
+            fn == 1 && wt == 0 -> { val (v, p2) = readVarint(data, offset); offset = p2; type = if (v.toInt() == 0) "flow" else "pressure" }
+            fn == 2 && wt == 2 -> {
+                val (len, p2) = readVarint(data, offset); offset = p2
+                val limit = offset + len.toInt()
+                while (offset < limit) {
+                    val (tt, tp) = readVarint(data, offset); offset = tp
+                    val tfn = (tt shr 3).toInt(); val twt = (tt and 0x7).toInt()
+                    when {
+                        tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) { end = java.nio.ByteBuffer.wrap(data, offset, 4).getFloat() }; offset += 4 }
+                        tfn == 4 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; timeMs = v.toInt() }
+                        twt == 0 -> { val (_, tp2) = readVarint(data, offset); offset = tp2 }
+                        twt == 2 -> { val (l, tp2) = readVarint(data, offset); offset = tp2 + l.toInt() }
+                        twt == 5 -> offset += 4
+                        else -> offset = limit
+                    }
+                }
+            }
+            fn == 6 && wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2; name = data.copyOfRange(offset, offset + l.toInt()).decodeToString(); offset += l.toInt() }
+            wt == 0 -> { val (_, p2) = readVarint(data, offset); offset = p2 }
+            wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2 + l.toInt() }
+            wt == 5 -> offset += 4
+            else -> offset = data.size
+        }
+    }
+    return if (name.isNotEmpty()) PhaseInfo(name, type, end, timeMs) else null
+}
+
+/** Parse all phases from a d_prof/d_act_prof profile payload into BrewPhase list. */
+fun parseProfilePhases(payload: ByteArray): List<com.gagmate.app.data.model.BrewPhase> {
+    val result = mutableListOf<com.gagmate.app.data.model.BrewPhase>()
+    var offset = 0
+    while (offset < payload.size) {
+        val (tag, p1) = readVarint(payload, offset); offset = p1
+        val fn = (tag shr 3).toInt(); val wt = (tag and 0x7).toInt()
+        if (fn == 2 && wt == 2) {
+            val (len, p2) = readVarint(payload, offset); offset = p2
+            val pb = payload.copyOfRange(offset, offset + len.toInt()); offset += len.toInt()
+            decodePhaseInfo(pb)?.let { info ->
+                result.add(com.gagmate.app.data.model.BrewPhase(
+                    name = info.name, type = info.type, target = info.end,
+                    time = (info.timeMs / 1000f).coerceAtLeast(0.1f)
+                ))
+            }
+        } else {
+            when (wt) {
+                0 -> { val (_, p2) = readVarint(payload, offset); offset = p2 }
+                2 -> { val (l, p2) = readVarint(payload, offset); offset = p2 + l.toInt() }
+                5 -> offset += 4
+                else -> offset = payload.size
+            }
+        }
+    }
+    return result
+}

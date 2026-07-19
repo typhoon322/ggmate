@@ -43,7 +43,7 @@ object AppContainer {
     fun init(context: Context) {
         db = AppDatabase.getInstance(context)
         localRepo = LocalDataRepository(db)
-        syncManager = SyncManager(localRepo, MachineRepository())
+        syncManager = SyncManager(localRepo, MachineRepository(), machineSession)
 
         machineSession = MachineSessionManager()
         sensorRepo = SensorRepository(machineSession)

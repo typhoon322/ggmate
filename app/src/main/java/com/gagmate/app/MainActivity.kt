@@ -5,6 +5,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import com.gagmate.app.data.api.NetworkLogger
 import com.gagmate.app.data.api.ApiDebugLogger
+import com.gagmate.app.data.system.CrashLogger
 import com.gagmate.app.data.repository.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         NetworkLogger.init(this)
         ApiDebugLogger.init(this)
+        CrashLogger.init(this)
         AppContainer.init(this)
         // Background sync when machine URL is already configured
         appScope.launch {

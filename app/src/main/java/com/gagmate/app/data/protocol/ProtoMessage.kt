@@ -10,7 +10,7 @@ class SensorSnapshotMsg(val value: SensorSnapshot) : ProtoMessage()
 class ShotSnapshotMsg(val value: ShotSnapshot) : ProtoMessage()
 class ProfileDictMsg(val profiles: List<ProfileRef>) : ProtoMessage()
 class ShotHistoryIndexMsg(val entries: List<ShotIndexEntry>) : ProtoMessage()
-class ActiveProfileMsg(val name: String) : ProtoMessage()
+class ActiveProfileMsg(val name: String, val phases: List<com.gagmate.app.data.model.BrewPhase> = emptyList()) : ProtoMessage()
 class SettingsMsg(val values: Map<String, String>) : ProtoMessage()
 class UnknownMsg(val command: String, val payloadSize: Int) : ProtoMessage()
 
@@ -20,7 +20,11 @@ fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd
     Commands.SHOT_SNAPSHOT -> parseShotSnapshot(payload)?.let { ShotSnapshotMsg(it) } ?: UnknownMsg(cmd, payload.size)
     Commands.PROFILE_DICT -> ProfileDictMsg(parseProfileDict(payload))
     Commands.SHOT_HISTORY_INDEX -> ShotHistoryIndexMsg(parseShotIndex(payload))
-    Commands.ACTIVE_PROFILE, Commands.PROFILE -> ActiveProfileMsg(extractProfileName(payload) ?: "unknown")
+    Commands.ACTIVE_PROFILE, Commands.PROFILE -> {
+        val name = extractProfileName(payload) ?: "unknown"
+        val phases = parseProfilePhases(payload)
+        ActiveProfileMsg(name, phases)
+    }
     Commands.SETTINGS -> SettingsMsg(parseSettings(payload))
     else -> UnknownMsg(cmd, payload.size)
 }

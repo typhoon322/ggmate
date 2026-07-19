@@ -1,9 +1,7 @@
 package com.gagmate.app.data.repository
 
 import com.gagmate.app.data.local.entity.ProfileEntity
-import com.gagmate.app.data.model.PhaseV3
-import com.gagmate.app.data.model.BrewPhase
-import com.gagmate.app.data.model.toBrewPhase
+
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.local.entity.MachineSettingsEntity
@@ -22,7 +20,8 @@ import com.google.gson.Gson
  */
 class SyncManager(
     private val localRepo: LocalDataRepository,
-    private val machineRepo: MachineRepository
+    private val machineRepo: MachineRepository,
+    private val machineSession: com.gagmate.app.data.session.MachineSessionManager
 ) {
     private val gson = Gson()
 
@@ -115,11 +114,11 @@ class SyncManager(
 
             if (local == null) {
                 // Fetch full profile data (with phases) if available
-                val phasesJson = try {
-                    val full = machineRepo.getProfileDetail(mp.id.toString()).getOrNull()
-                    val brewPhases = full?.phases?.map { it.toBrewPhase() } ?: emptyList()
-                    gson.toJson(brewPhases)
-                } catch (_: Exception) { "[]" }
+                // Request full profile data via WebSocket g_prof (async)
+                try {
+                    machineSession.sendGetProfile(mp.id)
+                } catch (_: Exception) { }
+                val phasesJson = "[]"  // Will be filled when WS response arrives
                 
                 val entity = ProfileEntity(
                     id = mId,
