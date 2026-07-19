@@ -118,7 +118,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun saveAndApply() {
         viewModelScope.launch {
             settingsRepository.saveSettings(_host.value, _port.value)
-            machineRepository.updateConnection(_host.value, _port.value.toIntOrNull() ?: 80)
+            val port = _port.value.toIntOrNull() ?: 80
+            machineRepository.updateConnection(_host.value, port)
+            AppContainer.machineSession.restart(_host.value.removePrefix("http://").removeSuffix("/"))
             _savedMessage.value = "Connection settings saved"
         }
     }

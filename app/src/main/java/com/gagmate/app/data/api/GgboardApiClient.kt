@@ -56,7 +56,7 @@ object GgboardApiClient {
             if (path.startsWith("/api/system/") || path.startsWith("/api/profiles/") || path.startsWith("/api/shots/")) {
                 ApiDebugLogger.logResponse(path, response.code, responseBody)
             }
-            DebugLogState.add("HTTP \${request.method}", "\$path \${response.code} \${responseBody.take(120)}")
+            DebugLogState.add("HTTP ${request.method}", "$path ${response.code} ${responseBody.take(120)}")
 
             response.newBuilder()
                 .body(responseBody.toResponseBody(response.body?.contentType()))

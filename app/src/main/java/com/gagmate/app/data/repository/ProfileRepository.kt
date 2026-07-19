@@ -182,8 +182,8 @@ class ProfileRepository(
                     try {
                         val parts = jsonText.split(Regex("\\}\\s*\\{"))
                         if (parts.size < 2) {
-                            val normalized = jsonText.replace("\\r\\n", "\\n").replace("\\r", "\\n")
-                            val parts2 = normalized.split(Regex("\\}\\s*\\\\n+\\s*\\{"))
+                            val normalized = jsonText.replace("\r\n", "\\n").replace("\\r", "\\n")
+                            val parts2 = normalized.split(Regex("}\\s*\\n+\\s*{"))
                             if (parts2.size < 2) emptyList() else parseSegments(parts2)
                         } else { parseSegments(parts) }
                     } catch (e4: Exception) { emptyList() }

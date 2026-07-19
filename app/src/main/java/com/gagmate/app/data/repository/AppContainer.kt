@@ -43,9 +43,9 @@ object AppContainer {
     fun init(context: Context) {
         db = AppDatabase.getInstance(context)
         localRepo = LocalDataRepository(db)
-        syncManager = SyncManager(localRepo, MachineRepository(), machineSession)
 
         machineSession = MachineSessionManager()
+        syncManager = SyncManager(localRepo, MachineRepository(), machineSession)
         sensorRepo = SensorRepository(machineSession)
         shotRepo = ShotRepository(machineSession)
         profileRepo = ProfileRepository(localRepo, MachineRepository(), machineSession, syncManager)

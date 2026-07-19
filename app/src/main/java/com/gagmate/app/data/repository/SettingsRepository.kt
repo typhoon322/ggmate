@@ -51,7 +51,4 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    fun getConnectionUrl(): String {
-        return "http://$DEFAULT_HOST:$DEFAULT_PORT/"
-    }
-}
+   }

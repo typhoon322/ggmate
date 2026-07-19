@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.gagmate.app.data.model.ShotRecord
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.ui.components.BrewChartView
+import com.gagmate.app.ui.components.ShotChartFullScreen
 import com.gagmate.app.ui.components.ChartPoint
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -42,6 +43,7 @@ fun ShotHistoryScreen(
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     var expandedShotId by remember { mutableStateOf<String?>(null) }
+    var fullScreenShot by remember { mutableStateOf<ShotEntity?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -110,6 +112,7 @@ fun ShotHistoryScreen(
                                 onToggle = {
                                     expandedShotId = if (expandedShotId == shot.id) null else shot.id
                                 },
+                                onFullScreen = { fullScreenShot = shot },
                                 onDelete = { viewModel.deleteShot(shot.id) },
                                 onExport = {
                                     val json = viewModel.exportShotAsJson(shot)
@@ -143,6 +146,13 @@ fun ShotHistoryScreen(
             }
         }
     }
+// Full-screen shot chart
+    if (fullScreenShot != null) {
+        ShotChartFullScreen(
+            shot = fullScreenShot!!,
+            onClose = { fullScreenShot = null }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -151,6 +161,7 @@ private fun ShotHistoryCard(
     shot: ShotEntity,
     isExpanded: Boolean,
     onToggle: () -> Unit,
+    onFullScreen: () -> Unit = {},
     onDelete: () -> Unit,
     onExport: () -> Unit
 ) {

@@ -81,7 +81,19 @@ class MachineSessionManager {
 
     fun start(applicationScope: CoroutineScope) {
         scope = applicationScope; reconnectAttempt = 0
-        host = GgboardApiClient.getCurrentBaseUrl().removePrefix("http://").removeSuffix("/")
+        host = GgboardApiClient.getCurrentBaseUrl().removePrefix("https://").removePrefix("http://").removeSuffix("/")
+        connect()
+    }
+
+    /** Reconnect to a new host (e.g. after Settings change). */
+    fun restart(newHost: String? = null) {
+        if (newHost != null) {
+            host = newHost.removePrefix("http://").removeSuffix("/")
+        }
+        webSocket?.close(1000, "Restart")
+        webSocket = null
+        reconnectJob?.cancel(); reconnectJob = null
+        reconnectAttempt = 0
         connect()
     }
 
@@ -95,12 +107,13 @@ class MachineSessionManager {
     private fun connect() {
         val currentScope = scope ?: return
         _connectionState.value = ConnectionState.CONNECTING; _errorMessage.value = null
-        client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
+        if (client == null) client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
         webSocket = client?.newWebSocket(Request.Builder().url("ws://$host/ws").build(), object : WebSocketListener() {
             override fun onOpen(ws: WebSocket, res: Response) { reconnectAttempt = 0; _connectionState.value = ConnectionState.CONNECTED }
 
             // TEXT messages: Gen3 firmware sends JSON (same format as web UI)
             override fun onMessage(ws: WebSocket, text: String) {
+                DebugLogState.add("WS", "json ${text.take(120)}")
                 handleJsonMessage(text)
             }
 
@@ -123,6 +136,7 @@ class MachineSessionManager {
             }
             override fun onClosed(ws: WebSocket, code: Int, reason: String) {
                 _connectionState.value = ConnectionState.DISCONNECTED
+                if (code != 1000) { val sc = scope; if (sc != null) scheduleReconnect(sc) }
             }
         })
     }
@@ -132,6 +146,8 @@ class MachineSessionManager {
             val obj = jsonGson.fromJson(text, JsonObject::class.java) ?: return
             val action = obj.get("action")?.asString ?: return
             val data = obj.getAsJsonObject("data") ?: return
+
+            DebugLogState.add("WS json", action)
 
             when (action) {
                 "sensor_data_update" -> {
