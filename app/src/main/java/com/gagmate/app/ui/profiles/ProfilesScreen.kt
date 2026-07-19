@@ -636,8 +636,8 @@ private fun PhaseCard(index: Int, phase: PhaseV3) {
     val targetText = if (phase.target != null) {
         val t = phase.target!!
         val unit = if (phase.type == "FLOW") " ml/s" else " bar"
-        "${t.end}$unit in ${t.time / 1000}s" + 
-        (if (t.start != null) " (from ${t.start})" else "") +
+        "${String.format("%.1f", t.end)}$unit in ${t.time / 1000}s" + 
+        (if (t.start != null) " (from ${String.format("%.1f", t.start)})" else "") +
         " ${t.curve}"
     } else ""
     val stopText = listOfNotNull(
