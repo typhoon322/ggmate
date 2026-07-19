@@ -113,7 +113,8 @@ class MachineSessionManager {
 
             // TEXT messages: Gen3 firmware sends JSON (same format as web UI)
             override fun onMessage(ws: WebSocket, text: String) {
-                DebugLogState.add("WS", "json ${text.take(120)}")
+                ApiDebugLogger.logResponse("WS json", text.length, text.take(500))
+                DebugLogState.add("WS", "json ${text.take(80)}")
                 handleJsonMessage(text)
             }
 
