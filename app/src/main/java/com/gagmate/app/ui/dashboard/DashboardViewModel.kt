@@ -92,30 +92,30 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // Build machine state from WS data
+        // Build machine state from WS data — individual collectors (avoid combine issue)
         viewModelScope.launch {
-            combine(
-                session.sensorSnapshot,
-                session.machineState,
-                session.shotSnapshot
-            ) { sensor, sysState, shot ->
-                MachineState(
-                    upTime = sysState.uptime.toString(),
-                    profileName = _machineState.value.profileName, // preserve from REST
+            session.sensorSnapshot.collect { sensor ->
+                _machineState.value = _machineState.value.copy(
                     targetTemperatureStr = sensor.targetTemperature.toString(),
                     temperatureStr = sensor.temperature.toString(),
                     pressureStr = sensor.pressure.toString(),
-                    waterLevel = sensor.waterLevel.toString(),
-                    weight = (shot?.weight ?: 0f).toString(),
-                    brewSwitchState = "false",
-                    steamSwitchState = "false"
+                    waterLevel = sensor.waterLevel.toString()
                 )
-            }.collect { state ->
-                val wasBrewing = _machineState.value.isBrewing
-                _machineState.value = state
-
-                // Brew just started — clear previous chart
-                if (state.isBrewing && !wasBrewing) {
+            }
+        }
+        viewModelScope.launch {
+            session.machineState.collect { sysState ->
+                _machineState.value = _machineState.value.copy(
+                    upTime = sysState.uptime.toString()
+                )
+            }
+        }
+        viewModelScope.launch {
+            session.shotSnapshot.collect { shot ->
+                _machineState.value = _machineState.value.copy(
+                    weight = (shot?.weight ?: 0f).toString()
+                )
+                if (shot != null && shot.timeInShot < NEW_SHOT_THRESHOLD_MS) {
                     AppContainer.shotRepo.clearChart()
                 }
             }

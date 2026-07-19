@@ -36,6 +36,7 @@ import com.gagmate.app.ui.components.BrewChartView
 import com.gagmate.app.ui.components.ChartPoint
 import androidx.compose.runtime.collectAsState
 import com.gagmate.app.ui.components.PhaseIndicator
+import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.ui.components.ProfileCard
 import com.gagmate.app.data.model.BrewPhase
 import com.gagmate.app.data.model.PhaseV3
@@ -555,6 +556,20 @@ private fun ProfileDetailDialog(
     profile: ProfileEntity,
     onDismiss: () -> Unit,
     onEdit: () -> Unit = {}) {
+    val phasesFromJson = try { profile.toShotProfile().phases } catch (_: Exception) { emptyList() }
+    val hasNoPhases = phasesFromJson.isEmpty() && profile.machineProfileId != null
+    var loadingPhases by remember { mutableStateOf(hasNoPhases) }
+
+    LaunchedEffect(profile.id) {
+        if (hasNoPhases) {
+            val intId = profile.machineProfileId!!.toIntOrNull()
+            if (intId != null) {
+                AppContainer.machineSession.sendGetProfile(intId)
+            }
+            loadingPhases = false // show loading while waiting for WS response
+        }
+    }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
@@ -605,6 +620,16 @@ private fun ProfileDetailDialog(
                             modifier = Modifier.padding(top = 8.dp)
                         )
                     }
+
+                if (loadingPhases && (phasesList == null || phasesList.isEmpty())) {
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Fetching phase data...")
+                        }
+                    }
+                }
                     itemsIndexed(phasesList) { index, phase ->
                         PhaseCard(index = index + 1, phase = phase.toPhaseV3())
                     }
