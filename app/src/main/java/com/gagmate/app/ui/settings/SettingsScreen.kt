@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.LocaleHelper
 import com.gagmate.app.data.system.DebugLogState
+import com.gagmate.app.ui.components.WsOverlayControl
 import com.gagmate.app.ui.settings.SettingsViewModel.ConnectionStatus
 import androidx.lifecycle.viewmodel.compose.viewModel
 
@@ -351,6 +352,38 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+            // WS Debug Overlay toggle
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "WS Data Overlay",
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                        Text(
+                            text = "Semi-transparent floating overlay showing parsed WS data",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = WsOverlayControl.enabled,
+                        onCheckedChange = { WsOverlayControl.enabled = it }
+                    )
                 }
             }
 

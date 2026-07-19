@@ -62,6 +62,13 @@ class MachineSessionManager {
     private val _brewActive = MutableStateFlow(false)
     val brewActive: StateFlow<Boolean> = _brewActive.asStateFlow()
 
+    /** Machine operation mode from d_sys_state. 1=normal, 2=flush, 3=descale, 8=tare */
+    private val _machineMode = MutableStateFlow(0)
+    val machineMode: StateFlow<Int> = _machineMode.asStateFlow()
+
+    /** Raw protobuf payload of the most recent d_act_prof/d_prof, for temperature/weight adjustments. */
+    private var _activeProfileRawPayload: ByteArray? = null
+
     private val _selectedProfileName = MutableStateFlow("")
     val selectedProfileName: StateFlow<String> = _selectedProfileName.asStateFlow()
 
@@ -199,12 +206,16 @@ class MachineSessionManager {
     }
 
     private fun handleMessage(msg: ProtoMessage) { when (msg) {
-        is SystemStateMsg -> _machineState.value = msg.value
+is SystemStateMsg -> {
+    _machineState.value = msg.value
+    _machineMode.value = msg.value.mode
+}
         is SensorSnapshotMsg -> _sensorSnapshot.value = msg.value
         is ShotSnapshotMsg -> _shotSnapshot.value = msg.value
         is ProfileDictMsg -> { _currentProfiles.value = msg.profiles; msg.profiles.firstOrNull { it.isSelected }?.let { _selectedProfileName.value = it.name } }
         is ActiveProfileMsg -> {
             DebugLogState.add("WS", "active_profile ${msg.name}")
+            _activeProfileRawPayload = if (msg.rawPayload.isNotEmpty()) msg.rawPayload else _activeProfileRawPayload
             if (msg.phases.isNotEmpty()) {
                 _profileDataReceived.tryEmit(msg.name to msg.phases)
             }
@@ -223,6 +234,28 @@ class MachineSessionManager {
     fun selectProfile(profileId: Int) { sendRaw(Commands.buildSelectProfile(profileId)) }
     fun sendGetProfile(profileId: Int) { sendRaw(Commands.buildGetProfile(profileId)) }
     fun setOpMode(mode: Int) { sendRaw(Commands.buildOpMode(mode)) }
+    fun tareScale() { sendRaw(Commands.buildTareCommand()) }
+    fun setNormalMode() { sendRaw(Commands.buildNormalOpMode()) }
+    /**
+     * Adjust the temperature setpoint of the active profile and send it to the machine.
+     * Requires a previously received d_act_prof/d_prof to have the full profile payload.
+     * @param newTemp The new temperature in °C.
+     */
+    fun updateActiveProfileTemperature(newTemp: Float) {
+        val payload = _activeProfileRawPayload ?: return
+        val modified = Commands.updateProfileTemperature(payload, newTemp)
+        sendRaw(Commands.buildUpdateActiveProfileCmd(modified))
+    }
+    /**
+     * Adjust the target weight of the active profile and send it to the machine.
+     * Requires a previously received d_act_prof/d_prof to have the full profile payload.
+     * @param newWeight The new target weight in grams.
+     */
+    fun updateActiveProfileWeight(newWeight: Float) {
+        val payload = _activeProfileRawPayload ?: return
+        val modified = Commands.updateProfileTargetWeight(payload, newWeight)
+        sendRaw(Commands.buildUpdateActiveProfileCmd(modified))
+    }
     fun requestSettings() { sendRaw(Commands.buildGetSettings()) }
     private fun sendRaw(data: ByteArray) { webSocket?.send(ByteString.of(*data)); DebugLogState.add("WS >>", "frame ${data.size}B") }
 }

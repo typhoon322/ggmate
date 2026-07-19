@@ -23,6 +23,7 @@ import com.gagmate.app.ui.dashboard.DashboardScreen
 import com.gagmate.app.ui.profiles.ProfilesScreen
 import com.gagmate.app.ui.settings.SettingsScreen
 import com.gagmate.app.ui.components.DebugOverlay
+import com.gagmate.app.ui.components.WsDataOverlay
 import com.gagmate.app.ui.history.ShotHistoryScreen
 import com.gagmate.app.ui.settings.SettingsViewModel
 
@@ -111,5 +112,6 @@ fun AppNavigation() {
         }
     }
 }
+    WsDataOverlay()
     DebugOverlay()
 }

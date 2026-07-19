@@ -41,6 +41,9 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _flushActive = MutableStateFlow(false)
+    val flushActive: StateFlow<Boolean> = _flushActive.asStateFlow()
+
     /** Live chart data from the brew shot. */
     val chartData: StateFlow<List<ChartPoint>> = AppContainer.shotRepo.chartData
 
@@ -161,6 +164,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 }
             }
         }
+
+        // Machine mode tracking (for flush/descale/tare active state)
+        viewModelScope.launch {
+            session.machineMode.collect { mode ->
+                _flushActive.value = mode == 2
+            }
+        }
     }
 
     private fun appString(resId: Int, vararg args: Any?): String {
@@ -204,21 +214,28 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
 
     fun tare() {
         try {
-            session.setOpMode(com.gagmate.app.data.protocol.Commands.MODE_TARE)
+            session.tareScale()
         } catch (_: Exception) {
             _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
         }
     }
 
     fun setSetpoint(temperature: Float) {
-        // Handled via WS updateActiveProfile — requires Profile comms
-        _error.value = "Setpoint via WS (profile update)"
+        try {
+            session.updateActiveProfileTemperature(temperature)
+        } catch (_: Exception) {
+            _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
+        }
     }
 
     fun setWeight(grams: Float) {
         _targetWeight.value = grams
         _currentWeight.value = grams
-        // Handled via WS updateActiveProfile
+        try {
+            session.updateActiveProfileWeight(grams)
+        } catch (_: Exception) {
+            _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
+        }
     }
 
     fun primePump() {

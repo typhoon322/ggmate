@@ -41,6 +41,7 @@ fun DashboardScreen(
     val chartData by viewModel.chartData.collectAsState()
     val liveWeight by viewModel.liveWeight.collectAsState()
     val targetWeight by viewModel.targetWeight.collectAsState()
+    val flushActive by viewModel.flushActive.collectAsState()
 
     var steamOn by remember { mutableStateOf(false) }
 
@@ -194,18 +195,36 @@ fun DashboardScreen(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         // Flush button
-                                        OutlinedButton(
-                                            onClick = { viewModel.flush() },
-                                            modifier = Modifier.weight(1f),
-                                            enabled = isConnected && machineState?.isActive != true
-                                        ) {
-                                            Icon(
-                                                Icons.Default.WaterDrop,
-                                                contentDescription = null,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                            Spacer(Modifier.width(6.dp))
-                                            Text(stringResource(R.string.dashboard_flush), maxLines = 1)
+                                        if (flushActive) {
+                                            Button(
+                                                onClick = { viewModel.flush() },
+                                                modifier = Modifier.weight(1f),
+                                                colors = ButtonDefaults.buttonColors(
+                                                    containerColor = MaterialTheme.colorScheme.tertiary
+                                                )
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.WaterDrop,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                                Text("Flushing", maxLines = 1)
+                                            }
+                                        } else {
+                                            OutlinedButton(
+                                                onClick = { viewModel.flush() },
+                                                modifier = Modifier.weight(1f),
+                                                enabled = isConnected && machineState?.isActive != true
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.WaterDrop,
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(stringResource(R.string.dashboard_flush), maxLines = 1)
+                                            }
                                         }
 
                                         // Tare button
