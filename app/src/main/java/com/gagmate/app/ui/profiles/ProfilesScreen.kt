@@ -34,6 +34,7 @@ import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.ui.components.BrewChartView
 import com.gagmate.app.ui.components.ChartPoint
+import androidx.compose.runtime.collectAsState
 import com.gagmate.app.ui.components.PhaseIndicator
 import com.gagmate.app.ui.components.ProfileCard
 import com.gagmate.app.data.model.BrewPhase

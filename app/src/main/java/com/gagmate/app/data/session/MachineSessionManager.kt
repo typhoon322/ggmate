@@ -3,6 +3,8 @@ package com.gagmate.app.data.session
 import com.gagmate.app.data.api.ApiDebugLogger
 import com.gagmate.app.data.api.GgboardApiClient
 import com.gagmate.app.data.model.ProfileRef
+import android.content.Context
+import com.gagmate.app.data.system.SoundManager
 import com.gagmate.app.data.protocol.*
 import com.gagmate.app.data.system.DebugLogState
 import kotlinx.coroutines.*
@@ -73,13 +75,15 @@ class MachineSessionManager {
     private var reconnectJob: Job? = null
     private var host = ""
     private var reconnectAttempt = 0
+    private var hasConnectedOnce = false
+    private var appContext: Context? = null
 
     companion object {
         private const val INITIAL_RECONNECT_MS = 1000L
         private const val MAX_RECONNECT_MS = 30000L
     }
 
-    fun start(applicationScope: CoroutineScope) {
+    fun start(applicationScope: CoroutineScope, context: Context? = null) { appContext = context;
         scope = applicationScope; reconnectAttempt = 0
         host = GgboardApiClient.getCurrentBaseUrl().removePrefix("https://").removePrefix("http://").removeSuffix("/")
         connect()
@@ -109,7 +113,10 @@ class MachineSessionManager {
         _connectionState.value = ConnectionState.CONNECTING; _errorMessage.value = null
         if (client == null) client = OkHttpClient.Builder().readTimeout(0, java.util.concurrent.TimeUnit.MILLISECONDS).build()
         webSocket = client?.newWebSocket(Request.Builder().url("ws://$host/ws").build(), object : WebSocketListener() {
-            override fun onOpen(ws: WebSocket, res: Response) { reconnectAttempt = 0; _connectionState.value = ConnectionState.CONNECTED }
+            override fun onOpen(ws: WebSocket, res: Response) {
+                reconnectAttempt = 0; _connectionState.value = ConnectionState.CONNECTED
+                if (!hasConnectedOnce) { hasConnectedOnce = true; appContext?.let { SoundManager.playConnectionSuccess(it) } }
+            }
 
             // TEXT messages: Gen3 firmware sends JSON (same format as web UI)
             override fun onMessage(ws: WebSocket, text: String) {
@@ -123,11 +130,23 @@ class MachineSessionManager {
                 val data = bytes.toByteArray()
                 val hex = data.joinToString("") { b -> java.lang.String.format("%02x", b.toInt() and 0xFF) }
                 ApiDebugLogger.logResponse("WS <<", bytes.size, hex)
-                ProtoCodec.decodeResponse(data)?.let { (cmd, payload) ->
+                val decoded = ProtoCodec.decodeResponse(data)
+                if (decoded != null) {
+                    val (cmd, payload) = decoded
                     DebugLogState.add("WS <<", cmd)
                     val msg = parseProtoMessage(cmd, payload)
                     handleMessage(msg)
                     _messages.tryEmit(msg)
+                } else {
+                    // Not a valid protobuf command — try JSON text embedded in binary frame
+                    try {
+                        val text = data.decodeToString()
+                        if (text.contains("action")) {
+                            ApiDebugLogger.logResponse("WS json", text.length, text.take(500))
+                            DebugLogState.add("WS", "json_bin ${text.take(80)}")
+                            handleJsonMessage(text)
+                        }
+                    } catch (_: Exception) { }
                 }
             }
             override fun onFailure(ws: WebSocket, t: Throwable, res: Response?) {

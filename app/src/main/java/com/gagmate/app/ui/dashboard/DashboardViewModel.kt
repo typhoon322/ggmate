@@ -70,9 +70,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 when (state) {
                     ConnectionState.CONNECTED -> {
                         _isConnected.value = true
-                        if (wasConnecting) {
-                            SoundManager.playConnectionSuccess(getApplication())
-                        }
+                        // Sound played once by MachineSessionManager.onOpen
                         _isLoading.value = false
                         _error.value = null
                     }
