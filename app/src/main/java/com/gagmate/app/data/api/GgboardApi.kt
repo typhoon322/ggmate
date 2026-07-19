@@ -4,6 +4,7 @@ import com.gagmate.app.data.model.MachineState
 import com.gagmate.app.data.model.ShotRecordApi
 import com.gagmate.app.data.model.ProfileRef
 import com.gagmate.app.data.model.LatestShotResponse
+import com.gagmate.app.data.model.EmbeddedProfile
 import com.gagmate.app.data.model.ShotProfile
 import okhttp3.ResponseBody
 import retrofit2.Response
@@ -36,6 +37,10 @@ interface GgboardApi {
 
     @POST("api/profile")
     suspend fun uploadProfile(@Body profile: ShotProfile): Response<Map<String, Any>>
+
+    /** GET /api/profile/{id} → full profile with phases (Gen3 firmware). */
+    @GET("api/profile/{id}")
+    suspend fun getProfileDetail(@Path("id") profileId: String): Response<EmbeddedProfile>
 
     // ── Shots ───────────────────────────────────────────────────────
 

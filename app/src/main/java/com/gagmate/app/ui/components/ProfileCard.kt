@@ -31,6 +31,7 @@ fun ProfileCard(
     isActive: Boolean = false,
     onClick: () -> Unit = {},
     onExport: (() -> Unit)? = null,
+    onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -101,6 +102,15 @@ fun ProfileCard(
                 }
             }
 
+            if (onEdit != null) {
+                IconButton(onClick = onEdit) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = stringResource(R.string.profiles_edit),
+                        tint = MaterialTheme.colorScheme.secondary
+                    )
+                }
+            }
             if (onExport != null) {
                 IconButton(onClick = onExport) {
                     Icon(

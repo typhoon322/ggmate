@@ -43,3 +43,18 @@ data class GlobalStopConditions(
     val weight: Float? = null,
     val waterPumped: Float? = null
 )
+
+
+/**
+ * Convert Gaggiuino v3 API format (PhaseV3) to local BrewPhase format
+ * for storage and chart generation.
+ */
+fun PhaseV3.toBrewPhase(): com.gagmate.app.data.model.BrewPhase {
+    val phaseTime = (target?.time ?: 0) / 1000f  // ms -> seconds
+    return com.gagmate.app.data.model.BrewPhase(
+        name = name,
+        type = type.lowercase().takeIf { it in setOf("pressure", "flow") } ?: "pressure",
+        target = target?.end ?: 0f,
+        time = phaseTime.coerceAtLeast(0.1f)
+    )
+}

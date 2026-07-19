@@ -5,6 +5,7 @@ import com.gagmate.app.data.model.MachineState
 import com.gagmate.app.data.model.ProfileRef
 import com.gagmate.app.data.model.ShotRecordApi
 import com.gagmate.app.data.model.ShotProfile
+import com.gagmate.app.data.model.EmbeddedProfile
 
 /**
  * Repository for accessing Gaggiuino v3 machine data via REST API.
@@ -74,6 +75,15 @@ class MachineRepository {
         if (!response.isSuccessful) {
             throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
         }
+    }
+
+    /** GET /api/profile/{id} → full profile with phases. */
+    suspend fun getProfileDetail(profileId: String): Result<EmbeddedProfile> = runCatching {
+        val response = api.getProfileDetail(profileId)
+        if (!response.isSuccessful) {
+            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
+        }
+        response.body() ?: throw Exception("Empty response")
     }
 
     fun updateConnection(host: String, port: Int = 80) {

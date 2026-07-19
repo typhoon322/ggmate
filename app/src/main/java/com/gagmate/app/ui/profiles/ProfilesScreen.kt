@@ -164,6 +164,10 @@ fun ProfilesScreen(
                                     selectedProfile = profile
                                     showDetailDialog = true
                                 },
+                                onEdit = {
+                                    editingProfile = profile
+                                    showEditDialog = true
+                                },
                                 onExport = {
                                     val json = viewModel.exportProfileAsJson(profile)
                                     // This would ideally use a share intent
@@ -360,12 +364,9 @@ private fun ProfileEditDialog(
     var editedNotes by remember { mutableStateOf(profile.notes) }
     var editedPhases by remember {
         val phases: List<com.gagmate.app.data.model.BrewPhase> = try {
-            com.google.gson.Gson().fromJson(
-                profile.phasesJson,
-                object : com.google.gson.reflect.TypeToken<List<com.gagmate.app.data.model.BrewPhase>>() {}.type
-            ) ?: emptyList()
+            profile.toShotProfile().phases
         } catch (_: Exception) { emptyList() }
-        mutableStateOf(phases)
+        mutableStateOf(phases.toMutableList())
     }
 
     AlertDialog(
@@ -488,11 +489,13 @@ private fun ProfileEditDialog(
                 item {
                     OutlinedButton(
                         onClick = {
-                            editedPhases = editedPhases + BrewPhase(
-                                name = "Phase ${editedPhases.size + 1}",
-                                target = 0f,
-                                time = 0f
-                            )
+                            editedPhases = editedPhases.toMutableList().apply {
+                                add(BrewPhase(
+                                    name = "Phase ${this.size + 1}",
+                                    target = 0f,
+                                    time = 0f
+                                ))
+                            }
                         },
                         modifier = Modifier.fillMaxWidth()
                     ) {
@@ -558,10 +561,7 @@ private fun ProfileDetailDialog(
         },
         text = {
             val phasesList = try {
-                com.google.gson.Gson().fromJson(
-                    profile.phasesJson,
-                    object : com.google.gson.reflect.TypeToken<List<com.gagmate.app.data.model.BrewPhase>>() {}.type
-                ) as? List<com.gagmate.app.data.model.BrewPhase>
+                profile.toShotProfile().phases.takeIf { it.isNotEmpty() }
             } catch (_: Exception) { null }
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -611,8 +611,13 @@ private fun ProfileDetailDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.profiles_close))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onEdit) {
+                    Text(stringResource(R.string.profiles_edit))
+                }
+                TextButton(onClick = onDismiss) {
+                    Text(stringResource(R.string.profiles_close))
+                }
             }
         }
     )

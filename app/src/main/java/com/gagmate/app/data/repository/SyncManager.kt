@@ -1,6 +1,9 @@
 package com.gagmate.app.data.repository
 
 import com.gagmate.app.data.local.entity.ProfileEntity
+import com.gagmate.app.data.model.PhaseV3
+import com.gagmate.app.data.model.BrewPhase
+import com.gagmate.app.data.model.toBrewPhase
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.local.entity.MachineSettingsEntity
@@ -111,13 +114,20 @@ class SyncManager(
             val local = localProfiles[mId]
 
             if (local == null) {
-                // Only id/name available from REST; create a minimal local entry
+                // Fetch full profile data (with phases) if available
+                val phasesJson = try {
+                    val full = machineRepo.getProfileDetail(mp.id.toString()).getOrNull()
+                    val brewPhases = full?.phases?.map { it.toBrewPhase() } ?: emptyList()
+                    gson.toJson(brewPhases)
+                } catch (_: Exception) { "[]" }
+                
                 val entity = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
                     notes = "",
                     machineProfileId = mId,
+                    phasesJson = phasesJson,
                     syncStatus = SyncStatus.SYNCED,
                     localUpdatedAt = System.currentTimeMillis(),
                     createdAt = System.currentTimeMillis()
