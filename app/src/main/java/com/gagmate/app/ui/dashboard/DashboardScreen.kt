@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.R
 import com.gagmate.app.data.repository.AppContainer
+import com.gagmate.app.data.session.ConnectionState
 import com.gagmate.app.theme.*
 import com.gagmate.app.ui.components.GaugeView
 import com.gagmate.app.ui.components.MachineStatusBadge
@@ -35,17 +36,23 @@ fun DashboardScreen(
     viewModel: DashboardViewModel = viewModel(),
     onOpenSettings: () -> Unit = {}
 ) {
-    val machineState by viewModel.machineState.collectAsState()
-    val isConnected by viewModel.isConnected.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
-    val error by viewModel.error.collectAsState()
+    // ── Direct session reads (bypass ViewModel) ─────────────────
+    val session = AppContainer.machineSession
+    val directSensor by session.sensorSnapshot.collectAsState()
+    val directSysState by session.machineState.collectAsState()
+    val directConnState by session.connectionState.collectAsState()
+    val directBrewActive by session.brewActive.collectAsState()
+    val directProfileName by session.selectedProfileName.collectAsState()
+    val directMode by session.machineMode.collectAsState()
+    val isConnected = directConnState == ConnectionState.CONNECTED
+    val isLoading = directConnState == ConnectionState.CONNECTING
+    val flushActive = directMode == 2
+
+    // ViewModel-based (for commands only, not display)
     val chartData by viewModel.chartData.collectAsState()
     val liveWeight by viewModel.liveWeight.collectAsState()
     val targetWeight by viewModel.targetWeight.collectAsState()
-    val flushActive by viewModel.flushActive.collectAsState()
-
-    val directSensor by AppContainer.machineSession.sensorSnapshot.collectAsState()
-    val directSysState by AppContainer.machineSession.machineState.collectAsState()
+    val error by viewModel.error.collectAsState()
 
     var steamOn by remember { mutableStateOf(false) }
 
@@ -58,8 +65,8 @@ fun DashboardScreen(
     }
 
     // Sync steam status from machine state
-    LaunchedEffect(machineState?.steamOn) {
-        steamOn = machineState?.steamOn == true
+    LaunchedEffect(false) {
+        steamOn = false == true
     }
 
     Scaffold(
@@ -95,18 +102,18 @@ fun DashboardScreen(
             if (isConnected) {
                 FloatingActionButton(
                     onClick = {
-                        if (machineState?.isActive == true) viewModel.stopBrew()
+                        if (directBrewActive == true) viewModel.stopBrew()
                         else viewModel.startBrew()
                     },
-                    containerColor = if (machineState?.isActive == true)
+                    containerColor = if (directBrewActive == true)
                         MaterialTheme.colorScheme.error
                     else
                         MaterialTheme.colorScheme.primary
                 ) {
                     Icon(
-                        imageVector = if (machineState?.isActive == true)
+                        imageVector = if (directBrewActive == true)
                             Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (machineState?.isActive == true) "Stop" else "Start Brew",
+                        contentDescription = if (directBrewActive == true) "Stop" else "Start Brew",
                         tint = MaterialTheme.colorScheme.onPrimary
                     )
                 }
@@ -119,12 +126,12 @@ fun DashboardScreen(
                 .padding(paddingValues)
         ) {
             when {
-                isLoading && machineState == null -> {
+                isLoading -> {
                     CircularProgressIndicator(
                         modifier = Modifier.align(Alignment.Center)
                     )
                 }
-                error != null && machineState == null -> {
+                error != null -> {
                     // No data yet - show connection error
                     Column(
                         modifier = Modifier
@@ -159,7 +166,7 @@ fun DashboardScreen(
                         item {
                             // DEBUG: raw data diagnostic
                             Text(
-                                text = "DBG: t=${"%.1f".format(directSensor.temperature)}(VM:${machineState?.temperatureStr}) P=${"%.2f".format(directSensor.pressure)} W=${directSensor.waterLevel}",
+                                text = "DBG: t=${"%.1f".format(directSensor.temperature)}C P=${"%.2f".format(directSensor.pressure)}bar W=${directSensor.waterLevel}%",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.outline,
                                 modifier = Modifier.padding(bottom = 4.dp)
@@ -171,12 +178,12 @@ fun DashboardScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 MachineStatusBadge(
-                                    status = if (machineState?.isBrewing == true) "brew" else "idle",
-                                    isActive = machineState?.isActive == true
+                                    status = if (directBrewActive == true) "brew" else "idle",
+                                    isActive = directBrewActive == true
                                 )
-                                if (machineState?.profileName?.isNotBlank() == true) {
+                                if (directProfileName?.isNotBlank() == true) {
                                     Text(
-                                        text = machineState!!.profileName,
+                                        text = directProfileName,
                                         style = MaterialTheme.typography.labelLarge,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                     )
@@ -227,7 +234,7 @@ fun DashboardScreen(
                                             OutlinedButton(
                                                 onClick = { viewModel.flush() },
                                                 modifier = Modifier.weight(1f),
-                                                enabled = isConnected && machineState?.isActive != true
+                                                enabled = isConnected && directBrewActive != true
                                             ) {
                                                 Icon(
                                                     Icons.Default.WaterDrop,
@@ -243,7 +250,7 @@ fun DashboardScreen(
                                         OutlinedButton(
                                             onClick = { viewModel.tare() },
                                             modifier = Modifier.weight(1f),
-                                            enabled = isConnected && machineState?.isActive != true
+                                            enabled = isConnected && directBrewActive != true
                                         ) {
                                             Text("TARE", fontSize = 14.sp)
                                         }
@@ -260,7 +267,7 @@ fun DashboardScreen(
                                             style = MaterialTheme.typography.bodyMedium
                                         )
                                         Text(
-                                            text = String.format("%.0f°C", machineState?.setpoint ?: 0f),
+                                            text = String.format("%.0f°C", directSensor.targetTemperature ?: 0f),
                                             style = MaterialTheme.typography.titleLarge,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.primary
@@ -268,7 +275,7 @@ fun DashboardScreen(
                                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val newVal = (machineState?.setpoint ?: 93f) - 1f
+                                                    val newVal = (directSensor.targetTemperature ?: 93f) - 1f
                                                     viewModel.setSetpoint(newVal)
                                                 },
                                                 modifier = Modifier.size(40.dp),
@@ -279,7 +286,7 @@ fun DashboardScreen(
                                             }
                                             FilledTonalButton(
                                                 onClick = {
-                                                    val newVal = (machineState?.setpoint ?: 93f) + 1f
+                                                    val newVal = (directSensor.targetTemperature ?: 93f) + 1f
                                                     viewModel.setSetpoint(newVal)
                                                 },
                                                 modifier = Modifier.size(40.dp),
@@ -377,7 +384,7 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 GaugeView(
-                                    value = machineState?.temperature ?: 0f,
+                                    value = directSensor.temperature ?: 0f,
                                     maxValue = 110f,
                                     label = stringResource(R.string.dashboard_boiler_t),
                                     unit = "\u00B0C",
@@ -399,7 +406,7 @@ fun DashboardScreen(
                                 horizontalArrangement = Arrangement.SpaceEvenly
                             ) {
                                 GaugeView(
-                                    value = machineState?.pressure ?: 0f,
+                                    value = directSensor.pressure ?: 0f,
                                     maxValue = 12f,
                                     label = "Pressure",
                                     unit = "bar",
@@ -417,7 +424,7 @@ fun DashboardScreen(
 
                         // Brew info cards
                         item {
-                            if (machineState?.isActive == true) {
+                            if (directBrewActive == true) {
                                 Card(
                                     modifier = Modifier.fillMaxWidth(),
                                     shape = RoundedCornerShape(12.dp),
@@ -481,7 +488,7 @@ fun DashboardScreen(
                                         )
                                         MetricItem(
                                             label = "Setpoint",
-                                            value = String.format("%.0f\u00B0C", machineState?.setpoint ?: 0f)
+                                            value = String.format("%.0f\u00B0C", directSensor.targetTemperature ?: 0f)
                                         )
                                     }
                                     // Phase info requires WebSocket
