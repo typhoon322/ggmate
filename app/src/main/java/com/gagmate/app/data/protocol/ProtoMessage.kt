@@ -1,5 +1,6 @@
 package com.gagmate.app.data.protocol
 
+import android.util.Log
 import com.gagmate.app.data.model.ProfileRef
 
 // Regular classes, not data classes — Kotlin 1.9.x KAPT has a bug
@@ -16,7 +17,11 @@ class UnknownMsg(val command: String, val payloadSize: Int) : ProtoMessage()
 
 fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd) {
     Commands.SYS_STATE -> SystemStateMsg(parseSysState(payload))
-    Commands.SENSOR_SNAPSHOT -> parseSensorSnapshot(payload)?.let { SensorSnapshotMsg(it) } ?: UnknownMsg(cmd, payload.size)
+    Commands.SENSOR_SNAPSHOT -> {
+        val snap = parseSensorSnapshot(payload)
+        Log.d("GagMateWS", "parseProto: d_sensor_sna => snap=${snap != null} t=${snap?.temperature ?: -1f}")
+        snap?.let { SensorSnapshotMsg(it) } ?: UnknownMsg(cmd, payload.size)
+    }
     Commands.SHOT_SNAPSHOT -> parseShotSnapshot(payload)?.let { ShotSnapshotMsg(it) } ?: UnknownMsg(cmd, payload.size)
     Commands.PROFILE_DICT -> ProfileDictMsg(parseProfileDict(payload))
     Commands.SHOT_HISTORY_INDEX -> ShotHistoryIndexMsg(parseShotIndex(payload))
@@ -26,7 +31,10 @@ fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd
     ActiveProfileMsg(name, phases, payload)
     }
     Commands.SETTINGS -> SettingsMsg(parseSettings(payload))
-    else -> UnknownMsg(cmd, payload.size)
+    else -> {
+        Log.d("GagMateWS", "parseProto: else => cmd='$cmd' len=${payload.size}")
+        UnknownMsg(cmd, payload.size)
+    }
 }
 
 private fun extractProfileName(payload: ByteArray): String? {
