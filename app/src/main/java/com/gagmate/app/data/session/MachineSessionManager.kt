@@ -4,6 +4,7 @@ import com.gagmate.app.data.api.ApiDebugLogger
 import com.gagmate.app.data.api.GgboardApiClient
 import com.gagmate.app.data.model.ProfileRef
 import android.content.Context
+import android.util.Log
 import com.gagmate.app.data.system.SoundManager
 import com.gagmate.app.data.protocol.*
 import com.gagmate.app.data.system.DebugLogState
@@ -210,7 +211,10 @@ is SystemStateMsg -> {
     _machineState.value = msg.value
     _machineMode.value = msg.value.mode
 }
-        is SensorSnapshotMsg -> _sensorSnapshot.value = msg.value
+        is SensorSnapshotMsg -> {
+            Log.d("GagMateWS", "handleMessage: SensorSnapshot t={msg.value.temperature} p={msg.value.pressure}")
+            _sensorSnapshot.value = msg.value
+        }
         is ShotSnapshotMsg -> _shotSnapshot.value = msg.value
         is ProfileDictMsg -> { _currentProfiles.value = msg.profiles; msg.profiles.firstOrNull { it.isSelected }?.let { _selectedProfileName.value = it.name } }
         is ActiveProfileMsg -> {
