@@ -1,5 +1,7 @@
 package com.gagmate.app.data.protocol
 
+import java.nio.ByteOrder
+
 import com.gagmate.app.data.model.ProfileRef
 
 /**
@@ -79,7 +81,7 @@ fun parseSensorSnapshot(payload: ByteArray): SensorSnapshot? {
             val fn = (tw shr 3).toInt(); val wt = (tw and 0x7L).toInt()
             if (wt == 5 && (fn == 4 || fn == 5 || fn == 6)) {
                 if (off + 4 <= payload.size) {
-                    val f = java.nio.ByteBuffer.wrap(payload, off, 4).getFloat()
+                    val f = readFloatLE(payload, off)
                     when (fn) { 4 -> t = f; 5 -> tt = f; 6 -> p = f }
                 }
                 off += 4
@@ -107,7 +109,7 @@ fun parseShotSnapshot(payload: ByteArray): ShotSnapshot? {
                 if (fn == 1) timeInShot = v.toInt()
             } else if (wt == 5) {
                 if (off + 4 <= payload.size) {
-                    val f = java.nio.ByteBuffer.wrap(payload, off, 4).getFloat()
+                    val f = readFloatLE(payload, off)
                     when (fn) {
                         2 -> pressure = f; 3 -> flow = f; 4 -> temperature = f
                         5 -> weight = f; 6 -> waterPumped = f
@@ -208,6 +210,11 @@ fun parseSettings(payload: ByteArray): Map<String, String> {
 
 // ── Internal ──────────────────────────────────────────────────
 
+
+/** Read a little-endian float from a byte array at the given offset. */
+private fun readFloatLE(data: ByteArray, offset: Int): Float =
+    java.nio.ByteBuffer.wrap(data, offset, 4).order(ByteOrder.LITTLE_ENDIAN).getFloat()
+
 private fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
     var value = 0L; var shift = 0; var pos = offset
     while (pos < data.size) {
@@ -241,7 +248,7 @@ private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
                     val (tt, tp) = readVarint(data, offset); offset = tp
                     val tfn = (tt shr 3).toInt(); val twt = (tt and 0x7).toInt()
                     when {
-                        tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) { end = java.nio.ByteBuffer.wrap(data, offset, 4).getFloat() }; offset += 4 }
+                        tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) { end = readFloatLE(data, offset) }; offset += 4 }
                         tfn == 4 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; timeMs = v.toInt() }
                         twt == 0 -> { val (_, tp2) = readVarint(data, offset); offset = tp2 }
                         twt == 2 -> { val (l, tp2) = readVarint(data, offset); offset = tp2 + l.toInt() }
@@ -250,7 +257,7 @@ private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
                     }
                 }
             }
-            fn == 3 && wt == 5 -> { if (offset + 4 <= data.size) { p3end = java.nio.ByteBuffer.wrap(data, offset, 4).getFloat() }; offset += 4 }
+            fn == 3 && wt == 5 -> { if (offset + 4 <= data.size) { p3end = readFloatLE(data, offset) }; offset += 4 }
             fn == 6 && wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2; name = data.copyOfRange(offset, offset + l.toInt()).decodeToString(); offset += l.toInt() }
             wt == 0 -> { val (_, p2) = readVarint(data, offset); offset = p2 }
             wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2 + l.toInt() }
