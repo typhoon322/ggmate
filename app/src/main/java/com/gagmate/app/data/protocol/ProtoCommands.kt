@@ -34,7 +34,7 @@ object Commands {
     const val SYS_STATE = "d_sys_state"
     const val ACTIVE_PROFILE = "d_act_prof"
     const val PROFILE = "d_prof"
-    const val SENSOR_SNAPSHOT = "d_sensor_sna"
+    const val SENSOR_SNAPSHOT = "d_sensor_snap"
     const val PROFILE_DICT = "d_prof_dict"
     const val SHOT_HISTORY_INDEX = "d_shot_hist_index"
     const val SETTINGS = "d_settings"
