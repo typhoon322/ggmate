@@ -16,7 +16,7 @@
 - **Real-time gauges** — boiler temperature, steam temperature, brew pressure, flow rate (animated arc gauges)
 - **Machine controls** — start/stop brew, flush, steam toggle, pump prime
 - **Temperature setpoint** — quick +/- adjustment (1°C steps)
-- **Live brew chart** — pressure/flow plotted in real time during extraction
+- **Live brew chart** — pressure/flow plotted in real time during extraction; the app automatically opens this screen the moment a brew starts on the machine
 - **Status display** — machine state badge (idle/brew/preinfusion/steam), connection indicator with pulsing dot
 - **Brew info** — elapsed time, shot volume, pump output percentage, active profile name, current phase
 
@@ -137,7 +137,7 @@ GagMate communicates with the standard ggboard REST API exposed by the Gagguino 
 | `/api/state` | GET | Current machine state |
 | `/api/profiles` | GET | List saved profiles |
 | `/api/profile` | GET/POST | Active profile / upload profile |
-| `/api/profile/{id}` | GET/DELETE | Get / delete specific profile |
+| `/api/profile/{id}` | GET/DELETE | Get / delete specific profile — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4) |
 | `/api/command` | POST | Send commands (flush, steam, setpoint) |
 | `/api/command/brew` | POST | Start brew |
 | `/api/command/stop` | POST | Stop brew |
@@ -165,7 +165,7 @@ MIT License
 - **实时仪表** — 锅炉温度、蒸汽温度、萃取压力、流速（动画弧形仪表）
 - **机器控制** — 开始/停止萃取、冲洗（Flush）、蒸汽开关、水泵注水（Prime）
 - **温度设定** — 快速 +/- 调节（1°C 步进）
-- **实时曲线图** — 萃取过程中压力/流速实时绘制
+- **实时曲线图** — 萃取过程中压力/流速实时绘制；萃取一开始 App 会自动打开实时曲线界面
 - **状态显示** — 机器状态标签（空闲/萃取/预浸泡/蒸汽）、连接指示灯（脉冲动画）
 - **萃取信息** — 用时、出液量、水泵输出百分比、当前曲线名称、当前阶段
 
@@ -259,7 +259,8 @@ app/src/main/java/com/gagmate/app/
     ├── navigation/AppNavigation.kt  # 底部导航栏（4 个标签页）
     ├── components/
     │   ├── GaugeView.kt         # 动画弧形仪表
-    │   ├── BrewChartView.kt     # 实时压力/流速曲线图
+    │   ├── CurveChart.kt        # 共用曲线渲染组件（CurveSeries/ChartAxis/generateProfileChartPoints）
+    │   ├── BrewChartView.kt     # 实时压力/流速曲线图卡片（委托 CurveChart）
     │   ├── StatusIndicator.kt   # 连接指示灯 + 机器状态标签
     │   ├── ProfileCard.kt       # 曲线列表卡片
     │   └── PhaseIndicator.kt    # 萃取阶段时间线
@@ -286,7 +287,7 @@ GagMate 与 Gagguino ESP32 固件暴露的标准 ggboard REST API 兼容：
 | `/api/state` | GET | 获取当前机器状态 |
 | `/api/profiles` | GET | 列出已保存曲线 |
 | `/api/profile` | GET/POST | 获取当前曲线 / 上传曲线 |
-| `/api/profile/{id}` | GET/DELETE | 获取/删除指定曲线 |
+| `/api/profile/{id}` | GET/DELETE | 获取/删除指定曲线 — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4) |
 | `/api/command` | POST | 发送命令（flush/steam/setpoint） |
 | `/api/command/brew` | POST | 开始萃取 |
 | `/api/command/stop` | POST | 停止萃取 |
