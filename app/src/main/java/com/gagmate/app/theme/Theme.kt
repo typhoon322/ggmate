@@ -1,11 +1,11 @@
 package com.gagmate.app.theme
 
 import android.app.Activity
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -54,7 +54,7 @@ private val DarkColorScheme = darkColorScheme(
 
 @Composable
 fun GagMateTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
+    darkTheme: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
@@ -63,14 +63,20 @@ fun GagMateTheme(
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.primary.toArgb()
+            // 与 enableEdgeToEdge() 配合：状态栏/导航栏透明，由应用栏颜色接管，
+            // 避免浅色主题下标题栏一片白、以及状态栏与标题栏之间的色差。
+            window.statusBarColor = Color.Transparent.toArgb()
+            window.navigationBarColor = Color.Transparent.toArgb()
             WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
         }
     }
 
-    MaterialTheme(
-        colorScheme = colorScheme,
-        typography = GagMateTypography,
-        content = content
-    )
+    val extended = if (darkTheme) DarkExtendedColors else LightExtendedColors
+    CompositionLocalProvider(LocalGagMateColors provides extended) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            typography = GagMateTypography,
+            content = content
+        )
+    }
 }

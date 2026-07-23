@@ -13,9 +13,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,12 +38,6 @@ private val flowColor = Color(0xFFFFC107)           // 黄色 (yellow)
 private val weightRateColor = Color(0xFF4CAF50)     // 绿色 (green)
 private val temperatureColor = Color(0xFFF44336)    // 红色 (red)
 
-// Target colors (semi-transparent for dashed lines)
-private val targetPressureColor = pressureColor.copy(alpha = 0.4f)
-private val targetFlowColor = flowColor.copy(alpha = 0.4f)
-private val targetTempColor = temperatureColor.copy(alpha = 0.4f)
-
-private val gridColor = Color(0xFFD7CCC8).copy(alpha = 0.4f)
 private val labelColor = Color(0xFF8D6E63)
 
 private const val LEFT_AXIS_MAX = 16f
@@ -65,7 +56,8 @@ fun BrewChartView(
     } else {
         dataPoints
     }
-    val effectiveTimeWindow = progressTime?.let { it.coerceAtLeast(timeWindow) } ?: timeWindow
+    val effectiveTimeWindow = progressTime?.let { it.coerceAtLeast(timeWindow) }
+        ?: (displayPoints.lastOrNull()?.time?.coerceAtLeast(timeWindow) ?: timeWindow)
 
     val hasTargetData = dataPoints.any { it.targetPressure > 0f || it.targetFlowRate > 0f || it.targetTemperature > 0f }
 
@@ -87,12 +79,12 @@ fun BrewChartView(
                 LegendItem(color = weightColor, label = stringResource(R.string.chart_weight))
             }
             if (hasTargetData) {
-                LegendItem(color = targetPressureColor, label = "Target", isDashed = true)
+                LegendItem(color = ChartColorTargetPressure, label = "Target", isDashed = true)
             }
         }
         Spacer(Modifier.height(2.dp))
 
-        Box(modifier = Modifier.fillMaxWidth().height(height)) {
+        Box(modifier = if (height == Dp.Unspecified) Modifier.fillMaxSize() else Modifier.fillMaxWidth().height(height)) {
             // Left Y axis (0-16: pressure, pump flow, weight change rate)
             Column(
                 modifier = Modifier.fillMaxHeight().width(24.dp),
@@ -117,168 +109,40 @@ fun BrewChartView(
                 Text("0", fontSize = 9.sp, color = labelColor)
             }
 
-            Canvas(
-                modifier = Modifier.fillMaxSize().padding(start = 24.dp, end = 22.dp, bottom = 16.dp)
-            ) {
-                val chartWidth = size.width
-                val chartHeight = size.height
-                val plotWidth = chartWidth
-                val plotHeight = chartHeight
+            val plotModifier = Modifier
+                .fillMaxSize()
+                .padding(start = 24.dp, end = 22.dp, bottom = 16.dp)
 
-                // Grid lines (horizontal, 5 lines)
-                for (i in 0..4) {
-                    val y = plotHeight * i / 4f
-                    drawLine(gridColor, Offset(0f, y), Offset(plotWidth, y), 1f)
-                }
-
-                if (displayPoints.size < 2) return@Canvas
-
-                val totalRange = dataPoints.lastOrNull()?.time?.coerceAtLeast(effectiveTimeWindow) ?: effectiveTimeWindow
-                val minT = 0f
-                val maxT = totalRange.coerceAtLeast(1f)
-                val tRange = maxT - minT
-
-                fun xPos(time: Float): Float = ((time - minT) / tRange * plotWidth).toFloat()
-                fun yValLeft(value: Float): Float =
-                    plotHeight - ((value / LEFT_AXIS_MAX).coerceIn(0f, 1f) * plotHeight).toFloat()
-                fun yValRight(value: Float): Float =
-                    plotHeight - ((value / RIGHT_AXIS_MAX).coerceIn(0f, 1f) * plotHeight).toFloat()
-
-                val dashEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 4f), 0f)
-
-                // ── Target dashed lines (drawn first, behind actuals) ──
-
-                if (hasTargetData) {
-                    // Target pressure (blue dashed)
-                    val targetPressurePath = Path()
-                    displayPoints.forEachIndexed { idx, pt ->
-                        if (pt.targetPressure > 0f) {
-                            val x = xPos(pt.time)
-                            val y = yValLeft(pt.targetPressure)
-                            if (idx > 0 && !targetPressurePath.isEmpty) {
-                                targetPressurePath.lineTo(x, y)
-                            } else {
-                                targetPressurePath.moveTo(x, y)
-                            }
-                        }
+            if (displayPoints.size >= 2) {
+                val pts = displayPoints
+                val series = buildList {
+                    if (hasTargetData) {
+                        add(CurveSeries(ChartColorTargetPressure, ChartAxis.LEFT, dashed = true) { pts[it].targetPressure })
+                        add(CurveSeries(ChartColorTargetFlow, ChartAxis.LEFT, dashed = true) { pts[it].targetFlowRate })
+                        add(CurveSeries(ChartColorTargetTemperature, ChartAxis.RIGHT, dashed = true) { pts[it].targetTemperature })
                     }
-                    if (!targetPressurePath.isEmpty) {
-                        drawPath(targetPressurePath, targetPressureColor,
-                            style = Stroke(2f, pathEffect = dashEffect, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    add(CurveSeries(pressureColor, ChartAxis.LEFT) { pts[it].pressure })
+                    add(CurveSeries(flowColor, ChartAxis.LEFT) { pts[it].flowRate })
+                    if (pts.any { it.weightChangeRate > 0.1f }) {
+                        add(CurveSeries(weightRateColor, ChartAxis.LEFT) { pts[it].weightChangeRate })
                     }
-
-                    // Target pump flow (yellow dashed)
-                    val targetFlowPath = Path()
-                    displayPoints.forEachIndexed { idx, pt ->
-                        if (pt.targetFlowRate > 0f) {
-                            val x = xPos(pt.time)
-                            val y = yValLeft(pt.targetFlowRate)
-                            if (idx > 0 && !targetFlowPath.isEmpty) {
-                                targetFlowPath.lineTo(x, y)
-                            } else {
-                                targetFlowPath.moveTo(x, y)
-                            }
-                        }
+                    if (pts.any { it.temperature > 0.5f }) {
+                        add(CurveSeries(temperatureColor, ChartAxis.RIGHT) { pts[it].temperature })
                     }
-                    if (!targetFlowPath.isEmpty) {
-                        drawPath(targetFlowPath, targetFlowColor,
-                            style = Stroke(2f, pathEffect = dashEffect, cap = StrokeCap.Round, join = StrokeJoin.Round))
-                    }
-
-                    // Target temperature (red dashed)
-                    val targetTempPath = Path()
-                    displayPoints.forEachIndexed { idx, pt ->
-                        if (pt.targetTemperature > 0f) {
-                            val x = xPos(pt.time)
-                            val y = yValRight(pt.targetTemperature)
-                            if (idx > 0 && !targetTempPath.isEmpty) {
-                                targetTempPath.lineTo(x, y)
-                            } else {
-                                targetTempPath.moveTo(x, y)
-                            }
-                        }
-                    }
-                    if (!targetTempPath.isEmpty) {
-                        drawPath(targetTempPath, targetTempColor,
-                            style = Stroke(2f, pathEffect = dashEffect, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    if (pts.any { (if (it.shotWeight > 0f) it.shotWeight else it.weight) > 0.1f }) {
+                        add(CurveSeries(weightColor, ChartAxis.RIGHT) { if (pts[it].shotWeight > 0f) pts[it].shotWeight else pts[it].weight })
                     }
                 }
-
-                // ── Actual solid lines ──
-
-                // Pressure (blue, left axis)
-                val pressurePath = Path()
-                displayPoints.forEachIndexed { idx, pt ->
-                    val x = xPos(pt.time)
-                    val y = yValLeft(pt.pressure)
-                    if (idx == 0) pressurePath.moveTo(x, y) else pressurePath.lineTo(x, y)
-                }
-                drawPath(pressurePath, pressureColor,
-                    style = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-                // Pump flow (yellow, left axis)
-                val flowPath = Path()
-                displayPoints.forEachIndexed { idx, pt ->
-                    val x = xPos(pt.time)
-                    val y = yValLeft(pt.flowRate)
-                    if (idx == 0) flowPath.moveTo(x, y) else flowPath.lineTo(x, y)
-                }
-                drawPath(flowPath, flowColor,
-                    style = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-                // Weight change rate (green, left axis)
-                val wcrPath = Path()
-                displayPoints.forEachIndexed { idx, pt ->
-                    val x = xPos(pt.time)
-                    val y = yValLeft(pt.weightChangeRate)
-                    if (idx == 0) wcrPath.moveTo(x, y) else wcrPath.lineTo(x, y)
-                }
-                drawPath(wcrPath, weightRateColor,
-                    style = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-                // Temperature (red, right axis)
-                val tempPath = Path()
-                displayPoints.forEachIndexed { idx, pt ->
-                    val x = xPos(pt.time)
-                    val y = yValRight(pt.temperature)
-                    if (idx == 0) tempPath.moveTo(x, y) else tempPath.lineTo(x, y)
-                }
-                drawPath(tempPath, temperatureColor,
-                    style = Stroke(3f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-                // Weight (brown, right axis) — use shotWeight (accumulated grams)
-                val weightPath = Path()
-                displayPoints.forEachIndexed { idx, pt ->
-                    val x = xPos(pt.time)
-                    val y = yValRight(if (pt.shotWeight > 0f) pt.shotWeight else pt.weight)
-                    if (idx == 0) weightPath.moveTo(x, y) else weightPath.lineTo(x, y)
-                }
-                drawPath(weightPath, weightColor,
-                    style = Stroke(2f, cap = StrokeCap.Round, join = StrokeJoin.Round))
-
-                // ── Current point markers ──
-                if (displayPoints.isNotEmpty()) {
-                    val last = displayPoints.last()
-                    val lx = xPos(last.time)
-
-                    // Small markers at the end of each line
-                    val markerSize = 4f
-                    drawCircle(pressureColor, markerSize, Offset(lx, yValLeft(last.pressure)))
-                    drawCircle(flowColor, markerSize, Offset(lx, yValLeft(last.flowRate)))
-                    drawCircle(weightRateColor, markerSize, Offset(lx, yValLeft(last.weightChangeRate)))
-                    drawCircle(temperatureColor, markerSize, Offset(lx, yValRight(last.temperature)))
-                    if (last.weight > 0f) {
-                        drawCircle(weightColor, markerSize, Offset(lx, yValRight(last.weight)))
-                    }
-
-                    // Progress marker line
-                    drawLine(
-                        Color(0xFF8D6E63).copy(alpha = 0.25f),
-                        Offset(lx, 0f),
-                        Offset(lx, plotHeight),
-                        strokeWidth = 1.5f
-                    )
-                }
+                CurveChart(
+                    modifier = plotModifier,
+                    pointCount = pts.size,
+                    timeAt = { pts[it].time },
+                    series = series,
+                    leftMax = LEFT_AXIS_MAX,
+                    rightMax = RIGHT_AXIS_MAX,
+                    t0 = 0f,
+                    t1 = effectiveTimeWindow
+                )
             }
 
             // X-axis labels

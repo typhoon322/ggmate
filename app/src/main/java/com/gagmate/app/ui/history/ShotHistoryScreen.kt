@@ -28,7 +28,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import com.gagmate.app.data.model.ShotRecord
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.ui.components.BrewChartView
-import com.gagmate.app.ui.components.ShotChartFullScreen
+import com.gagmate.app.ui.components.PageHeader
 import com.gagmate.app.ui.components.ChartPoint
 import kotlinx.coroutines.delay
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -38,13 +38,13 @@ import java.util.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShotHistoryScreen(
-    viewModel: ShotHistoryViewModel = viewModel()
+    viewModel: ShotHistoryViewModel = viewModel(),
+    onOpenChart: (String) -> Unit = {}
 ) {
     val shots by viewModel.shots.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val error by viewModel.error.collectAsState()
     var expandedShotId by remember { mutableStateOf<String?>(null) }
-    var fullScreenShot by remember { mutableStateOf<ShotEntity?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
@@ -52,35 +52,49 @@ fun ShotHistoryScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.history_title)) },
+        contentWindowInsets = WindowInsets(0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // ── Pinned page header (fixed below the system status bar) ──
+            PageHeader(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                title = {
+                    Text(
+                        stringResource(R.string.history_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                },
                 actions = {
                     IconButton(onClick = { viewModel.loadShots() }) {
                         Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.history_refresh))
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                }
             )
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
+
             when {
                 isLoading -> {
-                    CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+                    Box(
+                        modifier = Modifier.fillMaxSize().weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator()
+                    }
                 }
                 shots.isEmpty() && !isLoading -> {
                     Column(
                         modifier = Modifier
-                            .align(Alignment.Center)
+                            .fillMaxSize()
+                            .weight(1f)
                             .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Icon(
                             Icons.Default.Coffee,
@@ -102,8 +116,10 @@ fun ShotHistoryScreen(
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(shots, key = { it.id }) { shot ->
@@ -113,7 +129,7 @@ fun ShotHistoryScreen(
                                 onToggle = {
                                     expandedShotId = if (expandedShotId == shot.id) null else shot.id
                                 },
-                                onFullScreen = { fullScreenShot = shot },
+                                onFullScreen = { onOpenChart(shot.id) },
                                 onDelete = { viewModel.deleteShot(shot.id) },
                                 onExport = {
                                     val json = viewModel.exportShotAsJson(shot)
@@ -136,7 +152,7 @@ fun ShotHistoryScreen(
             if (error != null) {
                 Snackbar(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.CenterHorizontally)
                         .padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.loadShots() }) {
@@ -146,13 +162,6 @@ fun ShotHistoryScreen(
                 ) { Text(error ?: "") }
             }
         }
-    }
-// Full-screen shot chart
-    if (fullScreenShot != null) {
-        ShotChartFullScreen(
-            shot = fullScreenShot!!,
-            onClose = { fullScreenShot = null }
-        )
     }
 }
 
@@ -188,7 +197,7 @@ private fun ShotHistoryCard(
                         Text(shot.profileName.ifEmpty { "Espresso" },
                             style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(dateFormat.format(Date(shot.timestamp * 1000)),
+                        Text(dateFormat.format(Date(shot.timestamp)),
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }

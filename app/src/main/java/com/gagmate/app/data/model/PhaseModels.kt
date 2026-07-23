@@ -51,10 +51,13 @@ data class GlobalStopConditions(
  */
 fun PhaseV3.toBrewPhase(): com.gagmate.app.data.model.BrewPhase {
     val phaseTime = (target?.time ?: 0) / 1000f  // ms -> seconds
+    val t = type.lowercase().takeIf { it in setOf("pressure", "flow") } ?: "pressure"
     return com.gagmate.app.data.model.BrewPhase(
         name = name,
-        type = type.lowercase().takeIf { it in setOf("pressure", "flow") } ?: "pressure",
+        type = t,
         target = target?.end ?: 0f,
+        start = target?.start ?: 0f,
+        variation = target?.curve?.uppercase()?.takeIf { it.isNotBlank() } ?: "LINEAR",
         time = phaseTime.coerceAtLeast(0.1f)
     )
 }

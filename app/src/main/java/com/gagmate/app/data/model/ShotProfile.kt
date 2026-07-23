@@ -36,8 +36,20 @@ data class BrewPhase(
     @SerializedName("type")
     val type: String = "pressure",
 
+    /** Target end value (bar for pressure, ml/s for flow). */
     @SerializedName("target")
     val target: Float = 0f,
+
+    @SerializedName("start")
+    val start: Float = 0f,
+
+    /**
+     * Variation / change mode used when ramping from [start] to [target].
+     * One of: LINEAR/FLAT, EASE_IN, EASE_OUT, EASE_IN_OUT, FAST_IN,
+     * FAST_OUT, FAST_IN_OUT. Mirrors the Gaggiuino PhaseTarget.curve enum.
+     */
+    @SerializedName("variation")
+    val variation: String = "LINEAR",
 
     @SerializedName("time")
     val time: Float = 0f,

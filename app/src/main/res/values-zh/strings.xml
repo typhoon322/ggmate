@@ -12,9 +12,12 @@
     <string name="dashboard_title">GagMate</string>
     <string name="dashboard_connected">已连接</string>
     <string name="dashboard_connecting">连接中…</string>
+    <string name="dashboard_disconnected">未连接</string>
+    <string name="dashboard_offline_hint">未连接</string>
     <string name="dashboard_refresh">刷新</string>
     <string name="dashboard_cannot_connect">无法连接</string>
     <string name="dashboard_configure">配置连接</string>
+    <string name="dashboard_retry">重试连接</string>
     <string name="dashboard_start_brew">开始萃取</string>
     <string name="dashboard_stop_brew">停止萃取</string>
     <string name="dashboard_active_brew">萃取中</string>
@@ -41,6 +44,25 @@
     <string name="dashboard_celsius">°C</string>
     <string name="dashboard_error_lost">连接断开：%1$s</string>
     <string name="dashboard_error_connect">无法连接：%1$s</string>
+
+    <!-- Dashboard（新设计系统） -->
+    <string name="dashboard_no_profile">无曲线</string>
+    <string name="dashboard_active_profile">当前曲线</string>
+    <string name="dashboard_profile_globals">曲线全局设定</string>
+    <string name="dashboard_profile_curve">当前曲线</string>
+    <string name="dashboard_target_pressure">目标压力</string>
+    <string name="dashboard_target_flow">目标流量</string>
+    <string name="dashboard_target_time">目标时间</string>
+    <string name="dashboard_setpoint_short">设定温度</string>
+    <string name="dashboard_hero_uptime">运行时长</string>
+    <string name="dashboard_weight">设定液量</string>
+    <string name="dashboard_status_brewing">萃取中</string>
+    <string name="dashboard_status_heating">加热中</string>
+    <string name="dashboard_status_idle">空闲</string>
+    <string name="dashboard_status_steam">蒸汽</string>
+    <string name="dashboard_status_offline">未连接</string>
+    <string name="dashboard_status_connecting">连接中</string>
+    <string name="dashboard_status_reconnecting">重连中</string>
 
     <!-- Profiles -->
     <string name="profiles_title">萃取曲线</string>
@@ -78,6 +100,11 @@
     <string name="profile_edit_time">时间 (s)</string>
     <string name="profile_edit_remove">删除</string>
     <string name="profile_edit_add_phase">添加阶段</string>
+    <string name="profile_saving">保存中…</string>
+    <string name="profile_saved_hint">已保存到咖啡机</string>
+    <string name="profile_phases">阶段</string>
+    <string name="profile_no_phases">暂无阶段数据</string>
+    <string name="profile_fetching_phases">正在获取阶段数据…</string>
 
     <!-- Paste JSON Dialog -->
     <string name="paste_title">粘贴 JSON 曲线</string>
@@ -118,6 +145,7 @@
     <string name="settings_connected_to">已连接至 ggboard %1$s:%2$s</string>
     <string name="settings_about">关于</string>
     <string name="settings_version">GagMate v1.0.0</string>
+    <string name="settings_build_time">打包时间：%1$s</string>
     <string name="settings_description">Gagguino 咖啡机配套应用，连接 ggboard 实时监控和控制你的咖啡机。</string>
 
     <!-- Network Log -->
@@ -129,4 +157,17 @@
     <string name="general_ml">ml</string>
     <string name="general_seconds">s</string>
     <string name="general_minutes">m</string>
+
+    <!-- 实时曲线（萃取开始时自动打开） -->
+    <string name="live_curve_title">实时曲线</string>
+    <string name="live_curve_brewing">萃取中</string>
+    <string name="live_curve_idle">待机</string>
+    <string name="live_curve_waiting">等待萃取数据…</string>
+
+    <!-- 历史图表（横屏） -->
+    <string name="history_chart_title">萃取曲线</string>
+    <string name="history_chart_no_data">该记录无图表数据</string>
+    <string name="history_chart_zoom_in">放大</string>
+    <string name="history_chart_zoom_out">缩小</string>
+    <string name="history_chart_hint">拖动查看数值 · 放大后拖动滑条平移</string>
 </resources>

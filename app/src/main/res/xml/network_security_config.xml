@@ -5,7 +5,10 @@
         <domain includeSubdomains="true">192.168.0.186</domain>
         <domain includeSubdomains="true">192.168.4.1</domain>
     </domain-config>
-    <base-config cleartextTrafficPermitted="false">
+    <!-- The Gaggiuino machine is a LAN device served over plain HTTP (no TLS),
+         and its IP is user-configurable, so cleartext must be permitted globally.
+         Declared here as the single source of truth for cleartext policy. -->
+    <base-config cleartextTrafficPermitted="true">
         <trust-anchors>
             <certificates src="system" />
         </trust-anchors>

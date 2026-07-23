@@ -18,6 +18,9 @@ interface ShotDao {
     @Query("SELECT * FROM shot_records WHERE id = :id")
     suspend fun getById(id: String): ShotEntity?
 
+    @Query("SELECT id FROM shot_records")
+    suspend fun getExistingIds(): List<String>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(shot: ShotEntity)
 

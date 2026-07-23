@@ -6,6 +6,8 @@ import com.gagmate.app.data.model.ProfileRef
 import com.gagmate.app.data.model.ShotRecordApi
 import com.gagmate.app.data.model.ShotProfile
 import com.gagmate.app.data.model.EmbeddedProfile
+import com.gagmate.app.data.model.BrewPhase
+import com.gagmate.app.data.model.toBrewPhase
 
 /**
  * Repository for accessing Gaggiuino v3 machine data via REST API.
@@ -84,6 +86,40 @@ class MachineRepository {
             throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
         }
         response.body() ?: throw Exception("Empty response")
+    }
+
+    /**
+     * Resolve the phase list for a profile for LIVE display, tolerating
+     * firmwares that do not expose `GET /api/profile/{id}`.
+     *
+     * Strategy (live display only — persistence happens via the WS→Room
+     * collector in [com.gagmate.app.data.repository.ProfileRepository]):
+     *  1. LIVE WebSocket current definition: `g_prof` → `d_prof` (preferred,
+     *     this is the authoritative "now" recipe on REST-less firmwares).
+     *  2. Last-resort for viewing only: the most recent shot's *embedded*
+     *     profile (`GET /api/shots/{id}` → `profile.phases`), matched by name.
+     *     This is a HISTORICAL snapshot — never persisted, since changing the
+     *     recipe on the machine would make it stale.
+     *
+     * Returns an empty list only if both sources are unavailable.
+     */
+    suspend fun fetchProfilePhases(id: String?, name: String): List<BrewPhase> {
+        // 1) LIVE WebSocket current definition (preferred).
+        val intId = id?.toIntOrNull()
+        if (intId != null && name.isNotBlank()) {
+            try {
+                val ws = AppContainer.machineSession.requestProfilePhases(intId, name, 3500)
+                if (ws.isNotEmpty()) return ws
+            } catch (_: Exception) { }
+        }
+        // 2) Fallback: latest shot's embedded profile, matched by name (view only).
+        runCatching {
+            val latestId = getLatestShotId().getOrNull() ?: return@runCatching null
+            val shot = getShotDetail(latestId).getOrNull() ?: return@runCatching null
+            shot.profile?.takeIf { it.name == name }?.phases?.takeIf { it.isNotEmpty() }
+                ?.map { it.toBrewPhase() }
+        }.getOrNull()?.let { return it }
+        return emptyList()
     }
 
     fun updateConnection(host: String, port: Int = 80) {

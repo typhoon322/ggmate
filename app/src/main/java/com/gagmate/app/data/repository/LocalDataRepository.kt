@@ -30,6 +30,9 @@ class LocalDataRepository(private val db: AppDatabase) {
 
     suspend fun getProfileById(id: String): ProfileEntity? = profileDao.getById(id)
 
+    /** Live, auto-updating single profile (e.g. for the detail dialog). */
+    fun observeProfile(id: String): Flow<ProfileEntity?> = profileDao.observeById(id)
+
     suspend fun getProfileByMachineId(machineId: String): ProfileEntity? =
         profileDao.getByMachineId(machineId)
 
@@ -87,6 +90,9 @@ class LocalDataRepository(private val db: AppDatabase) {
     suspend fun saveShots(shots: List<ShotEntity>) = shotDao.upsertAll(shots)
 
     suspend fun getShotById(id: String): ShotEntity? = shotDao.getById(id)
+
+    /** IDs of shots already stored locally — lets sync skip re-downloads. */
+    suspend fun getExistingShotIds(): List<String> = shotDao.getExistingIds()
 
     suspend fun deleteShot(id: String) = shotDao.deleteById(id)
 

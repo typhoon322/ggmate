@@ -3,6 +3,9 @@ package com.gagmate.app.data.repository
 import android.content.Context
 import com.gagmate.app.data.local.AppDatabase
 import com.gagmate.app.data.session.MachineSessionManager
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 
 /**
  * Simple service locator – keeps global singletons for the app's lifetime.
@@ -36,9 +39,16 @@ object AppContainer {
     lateinit var profileRepo: ProfileRepository
         private set
 
+    /** Repository for machine REST calls (profile detail, etc.). */
+    lateinit var machineRepo: MachineRepository
+        private set
+
     /** True after [init] completes. */
     var isInitialised: Boolean = false
         private set
+
+    /** App-wide coroutine scope (lives for the whole process). */
+    val appScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     fun init(context: Context) {
         db = AppDatabase.getInstance(context)
@@ -49,6 +59,11 @@ object AppContainer {
         sensorRepo = SensorRepository(machineSession)
         shotRepo = ShotRepository(machineSession)
         profileRepo = ProfileRepository(localRepo, MachineRepository(), machineSession, syncManager)
+        machineRepo = MachineRepository()
+
+        // Begin streaming live shot data into the rolling chart buffer
+        // immediately, independent of which screen is currently shown.
+        shotRepo.start(appScope)
 
         isInitialised = true
     }

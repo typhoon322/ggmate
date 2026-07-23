@@ -12,11 +12,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
+import com.gagmate.app.R
+import com.gagmate.app.theme.GagMateSpacing
+import com.gagmate.app.theme.GagMateShape
+import com.gagmate.app.theme.gagMateColors
 
 /**
- * Connection status indicator with animated pulsing dot.
+ * Connection status indicator with an animated pulsing dot.
+ * The dot color comes from the semantic [gagMateColors] token set, so it
+ * stays consistent and accessible in both light and dark themes.
  */
 @Composable
 fun StatusIndicator(
@@ -24,6 +31,7 @@ fun StatusIndicator(
     label: String = if (isConnected) "Connected" else "Disconnected",
     modifier: Modifier = Modifier
 ) {
+    val colors = gagMateColors()
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
     val pulseAlpha by infiniteTransition.animateFloat(
         initialValue = 1f,
@@ -36,7 +44,7 @@ fun StatusIndicator(
     )
 
     val dotColor by animateColorAsState(
-        targetValue = if (isConnected) Color(0xFF43A047) else Color(0xFFBDBDBD),
+        targetValue = if (isConnected) colors.success else colors.disabled,
         label = "dotColor",
         animationSpec = tween(300)
     )
@@ -44,7 +52,7 @@ fun StatusIndicator(
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+        horizontalArrangement = Arrangement.spacedBy(GagMateSpacing.sm)
     ) {
         Box(
             modifier = Modifier
@@ -61,32 +69,42 @@ fun StatusIndicator(
 }
 
 /**
- * Machine status badge showing current operation state.
+ * Machine operation-state badge (Idle / Brewing / Heating / Steam).
+ * Colors are driven by semantic tokens and the label is localised.
+ * Exposes an accessible content description so screen readers announce the
+ * machine state instead of just reading the raw text.
  */
 @Composable
 fun MachineStatusBadge(
     status: String,
-    isActive: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val bgColor = when {
-        status == "brew" -> Color(0xFFE65100)
-        status == "preinfusion" -> Color(0xFFFF8F00)
-        status == "steam" -> Color(0xFF78909C)
-        isActive -> Color(0xFFFF6F00)
-        else -> Color(0xFF43A047)
+    val colors = gagMateColors()
+
+    val (bg, labelRes) = when (status) {
+        "brew" -> colors.stateBrewing to R.string.dashboard_status_brewing
+        "preinfusion", "heating" -> colors.stateHeating to R.string.dashboard_status_heating
+        "steam" -> colors.stateSteam to R.string.dashboard_status_steam
+        "offline" -> colors.stateOffline to R.string.dashboard_status_offline
+        "connecting" -> colors.info to R.string.dashboard_status_connecting
+        "reconnecting" -> colors.info to R.string.dashboard_status_reconnecting
+        else -> colors.stateIdle to R.string.dashboard_status_idle
     }
+    val label = stringResource(labelRes)
 
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(bgColor)
-            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(GagMateShape.pill))
+            .background(bg)
+            .padding(horizontal = GagMateSpacing.md, vertical = GagMateSpacing.xs)
+            .clearAndSetSemantics {
+                contentDescription = "Machine status: $label"
+            }
     ) {
         Text(
-            text = status.replaceFirstChar { it.uppercase() },
+            text = label,
             style = MaterialTheme.typography.labelLarge,
-            color = Color.White
+            color = colors.onState
         )
     }
 }

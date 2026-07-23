@@ -1,6 +1,7 @@
 package com.gagmate.app.data.protocol
 
 import android.util.Log
+import com.gagmate.app.BuildConfig
 import com.gagmate.app.data.model.ProfileRef
 
 // Regular classes, not data classes — Kotlin 1.9.x KAPT has a bug
@@ -28,7 +29,9 @@ fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd
     Commands.ACTIVE_PROFILE, Commands.PROFILE -> {
         val name = extractProfileName(payload) ?: "unknown"
         val phases = parseProfilePhases(payload)
-    ActiveProfileMsg(name, phases, payload)
+        if (BuildConfig.DEBUG)
+            Log.d("GagMateProfile", "parseProto(${cmd}): name='$name' phases=${phases.size} payload=${payload.size}B")
+        ActiveProfileMsg(name, phases, payload)
     }
     Commands.SETTINGS -> SettingsMsg(parseSettings(payload))
     else -> {

@@ -60,11 +60,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     // ── Actions ──────────────────────────────────────────────────
 
     fun loadProfiles() {
-        // Local data already flowing via profilesFlow in init{}
-        _isLoading.value = true
+        // Local data already flows via profilesFlow in init{} and is shown immediately.
+        // The network sync runs in the background and only updates the UI when new
+        // data actually arrives (see _syncMessage), so the list never blocks on loading.
+        _isSyncing.value = true
         viewModelScope.launch {
             val result = profileRepo.syncFromMachine()
-            _isLoading.value = false
+            _isSyncing.value = false
             if (result.errors.isNotEmpty()) {
                 _error.value = result.errors.joinToString("; ")
             } else if (result.profilesAdded > 0 || result.profilesConflicted > 0 || result.profilesUploaded > 0) {
@@ -122,6 +124,10 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     // ── Save ───────────────────────────────────────────────────
 
+    /** Push to machine first; persist locally only after the machine confirms. */
+    suspend fun pushAndSaveIfConfirmed(entity: ProfileEntity): Result<Unit> =
+        profileRepo.pushAndSaveIfConfirmed(entity)
+
     fun saveEditedProfile(entity: ProfileEntity) {
         viewModelScope.launch {
             val msg = profileRepo.saveEditedProfile(entity)
@@ -177,4 +183,8 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     fun clearSyncMessage() { _syncMessage.value = null }
     fun clearError() { _error.value = null }
+
+    /** Live, auto-updating single profile — used by the detail dialog so that
+     *  phases fetched over WebSocket (written back to Room) appear instantly. */
+    fun profileFlow(id: String) = profileRepo.observeProfile(id)
 }

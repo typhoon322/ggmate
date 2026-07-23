@@ -24,6 +24,8 @@ data class SensorSnapshot(
     val temperature: Float = 0f,
     val targetTemperature: Float = 0f,
     val pressure: Float = 0f,
+    val pumpFlow: Float = 0f,
+    val weight: Float = 0f,
     val waterLevel: Int = 0
 )
 
@@ -89,7 +91,7 @@ fun parseSensorSnapshot(payload: ByteArray): SensorSnapshot? {
                 val (v, p2) = readVarint(payload, off); off = p2; wl = v.toInt()
             }
         }
-        return SensorSnapshot(t, tt, p, wl)
+        return SensorSnapshot(t, tt, p, 0f, 0f, wl)
     } catch (_: Exception) { return null }
 }
 
@@ -168,20 +170,23 @@ fun parseProfileDict(payload: ByteArray): List<ProfileRef> {
             val fn = (tw shr 3).toInt(); if (fn != 1) break
             val (len, p2) = readVarint(payload, off); off = p2
             val entry = payload.copyOfRange(off, off + len.toInt()); off += len.toInt()
-            var eo = 0; var pid = 0; var pname = ""
+            var eo = 0; var pid = 0; var pname = ""; var psel = false
             while (eo < entry.size) {
                 val (etw, ep) = readVarint(entry, eo); eo = ep
                 val efn = (etw shr 3).toInt(); val ewt = (etw and 0x7L).toInt()
                 if (ewt == 0) {
                     val (ev, ep2) = readVarint(entry, eo); eo = ep2
-                    if (efn == 1) pid = ev.toInt()
+                    when (efn) {
+                        1 -> pid = ev.toInt()
+                        3 -> psel = ev != 0L   // field 3 = selected (bool)
+                    }
                 } else if (ewt == 2) {
                     val (el, ep2) = readVarint(entry, eo); eo = ep2
                     if (efn == 2) pname = entry.copyOfRange(eo, eo + el.toInt()).decodeToString()
                     eo += el.toInt()
                 }
             }
-            profiles.add(ProfileRef(id = pid, name = pname))
+            profiles.add(ProfileRef(id = pid, name = pname, selected = if (psel) "true" else "false"))
         }
     } catch (_: Exception) { }
     return profiles
@@ -227,28 +232,63 @@ private fun readVarint(data: ByteArray, offset: Int): Pair<Long, Int> {
 }
 
 
-/** Decode a single phase protobuf into (name, type, target, time). */
+/**
+ * Decode a single phase protobuf into its fields.
+ *
+ * Matches the Gaggiuino v3 Phase schema:
+ *   field 1: type     (varint, 0=pressure / 1=flow)
+ *   field 2: name     (string)
+ *   field 3: target   (nested message)
+ *        sub 1: start  (float)
+ *        sub 2: end    (float)
+ *        sub 3: curve  (varint enum — FLAT/EASE_IN/...)
+ *        sub 4: time   (int32 ms)
+ *   field 4: restriction (float)  field 5: waterTemp (float)  field 6: skip (bool)
+ *
+ * The previous parser wrongly treated the phase *name* (field 2) as the
+ * nested Target, which is why phases came back with the right count but all
+ * zero values.
+ */
 private data class PhaseInfo(
-    val name: String, val type: String, val end: Float, val timeMs: Int,
-    val phaseField3End: Float = 0f  // alternative end from phase top-level field 3
+    val name: String, val type: String, val start: Float, val end: Float,
+    val timeMs: Int, val variation: String
 )
+
+/** Map the Gaggiuino CurveType enum ordinal to its string name. */
+private fun curveEnumToString(ordinal: Int): String = when (ordinal) {
+    0 -> "FLAT"
+    1 -> "EASE_IN"
+    2 -> "EASE_OUT"
+    3 -> "EASE_IN_OUT"
+    4 -> "FAST_IN"
+    5 -> "FAST_OUT"
+    6 -> "FAST_IN_OUT"
+    else -> "FLAT"
+}
 
 private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
     var offset = 0
-    var name = ""; var type = "pressure"; var end = 0f; var timeMs = 0; var p3end = 0f
+    var name = ""; var type = "pressure"
+    var start = 0f; var end = 0f; var timeMs = 0; var variation = "FLAT"
     while (offset < data.size) {
         val (tag, p1) = readVarint(data, offset); offset = p1
         val fn = (tag shr 3).toInt(); val wt = (tag and 0x7).toInt()
         when {
-            fn == 1 && wt == 0 -> { val (v, p2) = readVarint(data, offset); offset = p2; type = if (v.toInt() == 0) "flow" else "pressure" }
+            fn == 1 && wt == 0 -> { val (v, p2) = readVarint(data, offset); offset = p2; type = if (v.toInt() == 0) "pressure" else "flow" }
             fn == 2 && wt == 2 -> {
+                val (len, p2) = readVarint(data, offset); offset = p2
+                name = data.copyOfRange(offset, offset + len.toInt()).decodeToString(); offset += len.toInt()
+            }
+            fn == 3 && wt == 2 -> {
                 val (len, p2) = readVarint(data, offset); offset = p2
                 val limit = offset + len.toInt()
                 while (offset < limit) {
                     val (tt, tp) = readVarint(data, offset); offset = tp
                     val tfn = (tt shr 3).toInt(); val twt = (tt and 0x7).toInt()
                     when {
-                        tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) { end = readFloatLE(data, offset) }; offset += 4 }
+                        tfn == 1 && twt == 5 -> { if (offset + 4 <= limit) start = readFloatLE(data, offset); offset += 4 }
+                        tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) end = readFloatLE(data, offset); offset += 4 }
+                        tfn == 3 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; variation = curveEnumToString(v.toInt()) }
                         tfn == 4 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; timeMs = v.toInt() }
                         twt == 0 -> { val (_, tp2) = readVarint(data, offset); offset = tp2 }
                         twt == 2 -> { val (l, tp2) = readVarint(data, offset); offset = tp2 + l.toInt() }
@@ -257,18 +297,15 @@ private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
                     }
                 }
             }
-            fn == 3 && wt == 5 -> { if (offset + 4 <= data.size) { p3end = readFloatLE(data, offset) }; offset += 4 }
-            fn == 6 && wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2; name = data.copyOfRange(offset, offset + l.toInt()).decodeToString(); offset += l.toInt() }
+            // fields 4 (restriction float), 5 (waterTemp float), 6 (skip bool): skip
             wt == 0 -> { val (_, p2) = readVarint(data, offset); offset = p2 }
             wt == 2 -> { val (l, p2) = readVarint(data, offset); offset = p2 + l.toInt() }
             wt == 5 -> offset += 4
             else -> offset = data.size
         }
     }
-    // Use phase field 3 float as end value when segment field 2 is 0 (or sub-epsilon)
-    val actualEnd = if (end < 0.0001f && end > -0.0001f) p3end else end
     val displayName = name.ifEmpty { "Phase ${phaseIndex + 1}" }
-    return PhaseInfo(displayName, type, actualEnd, timeMs, p3end)
+    return PhaseInfo(displayName, type, start, end, timeMs, variation)
 }
 
 /** Parse all phases from a d_prof/d_act_prof profile payload into BrewPhase list. */
@@ -283,7 +320,8 @@ fun parseProfilePhases(payload: ByteArray): List<com.gagmate.app.data.model.Brew
             val pb = payload.copyOfRange(offset, offset + len.toInt()); offset += len.toInt()
             val info = decodePhaseInfo(pb, result.size)
             result.add(com.gagmate.app.data.model.BrewPhase(
-                name = info.name, type = info.type, target = info.end,
+                name = info.name, type = info.type,
+                target = info.end, start = info.start, variation = info.variation,
                 time = (info.timeMs / 1000f).coerceAtLeast(0.1f)
             ))
         } else {

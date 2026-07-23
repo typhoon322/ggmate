@@ -1,12 +1,16 @@
 package com.gagmate.app.data.repository
 
+import android.util.Log
+import com.gagmate.app.BuildConfig
 import com.gagmate.app.data.local.entity.ProfileEntity
 
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.local.entity.MachineSettingsEntity
 import com.gagmate.app.data.model.ShotRecord
+import com.gagmate.app.data.model.toBrewPhase
 import com.google.gson.Gson
+import kotlinx.coroutines.*
 
 /**
  * Coordinates synchronisation between the ggboard machine API and the local Room database.
@@ -105,6 +109,9 @@ class SyncManager(
         } catch (_: Exception) {
             return SyncResult()
         }
+        if (BuildConfig.DEBUG)
+            Log.d("GagMateProfile", "fullSync: machine returned ${machineProfiles.size} profiles: " +
+                machineProfiles.joinToString { "[id=${it.id} name='${it.name}']" })
 
         val localProfiles = localRepo.getAllProfiles().associateBy { it.machineProfileId }
 
@@ -112,30 +119,37 @@ class SyncManager(
             val mId = mp.id.toString()
             val local = localProfiles[mId]
 
+            // This firmware does NOT expose REST `GET /api/profile/{id}`, so the
+            // CURRENT profile definition can only be fetched over WebSocket via
+            // `g_prof`. Fire the request here; the ProfileRepository WS→Room
+            // collector persists the `d_prof`/`d_act_prof` response (by profile
+            // name) into phasesJson asynchronously — this is what makes the
+            // profile chart viewable offline with the authoritative, present recipe.
+            if (machineSession.isConnected()) {
+                try { machineSession.sendGetProfile(mp.id) } catch (_: Exception) { }
+            }
+
             if (local == null) {
-                // Fetch full profile data (with phases) if available
-                // Request full profile data via WebSocket g_prof (async)
-                try {
-                    machineSession.sendGetProfile(mp.id)
-                } catch (_: Exception) { }
-                val phasesJson = "[]"  // Will be filled when WS response arrives
-                
                 val entity = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
                     notes = "",
                     machineProfileId = mId,
-                    phasesJson = phasesJson,
+                    phasesJson = "[]",
                     syncStatus = SyncStatus.SYNCED,
                     localUpdatedAt = System.currentTimeMillis(),
                     createdAt = System.currentTimeMillis()
                 )
+                if (BuildConfig.DEBUG)
+                    Log.d("GagMateProfile", "fullSync: ADDED profile id=$mId name='${entity.name}' (phases filled via WS g_prof)")
                 localRepo.saveProfile(entity)
                 profilesAdded++
             } else {
                 when (local.syncStatus) {
                     SyncStatus.SYNCED -> {
+                        // Refresh metadata only; phasesJson is filled by the WS
+                        // collector (we must NOT clobber in-flight/already-synced phases).
                         val updated = local.copy(
                             name = mp.name,
                             machineProfileId = mId,
@@ -147,6 +161,7 @@ class SyncManager(
                     }
                     SyncStatus.LOCAL_ONLY -> { /* shouldn't happen */ }
                     SyncStatus.MODIFIED, SyncStatus.CONFLICT -> {
+                        // User's local edits win — never overwrite their phases.
                         localRepo.saveProfile(local.copy(syncStatus = SyncStatus.CONFLICT))
                         profilesConflicted++
                     }
@@ -159,9 +174,10 @@ class SyncManager(
             if (entity.syncStatus == SyncStatus.LOCAL_ONLY || entity.syncStatus == SyncStatus.MODIFIED) {
                 try {
                     val profile = entity.toShotProfile()
-                    // uploadProfile is not available as REST in Gaggiuino v3
-                    // Mark as pending for future WebSocket sync
-                    profilesUploaded++
+                    machineRepo.uploadProfile(profile).onSuccess {
+                        localRepo.markProfileSynced(entity.id, profile.profileId ?: entity.machineProfileId)
+                        profilesUploaded++
+                    }.onFailure { throw it }
                 } catch (e: Exception) {
                     errors.add("Upload '${entity.name}': ${e.message ?: e}")
                 }
@@ -182,11 +198,19 @@ class SyncManager(
         try {
             val latestId = machineRepo.getLatestShotId().getOrNull() ?: return SyncResult()
             val latestIdInt = latestId.toIntOrNull() ?: return SyncResult()
-            
-            // Iterate from shot ID 1 to latestShotId to sync all available shots.
-            // Always save full detail (overwrite minimal entities from WS).
-            for (shotId in 1..latestIdInt) {
-                val detail = machineRepo.getShotDetail(shotId.toString()).getOrNull()
+
+            // Skip shots already stored locally so re-syncs are cheap.
+            val existing = localRepo.getExistingShotIds().toSet()
+            val toFetch = (1..latestIdInt).map { it.toString() }.filter { !existing.contains(it) }
+            if (toFetch.isEmpty()) return SyncResult()
+
+            // Fetch missing shots concurrently (bounded) instead of one-by-one.
+            val fetched = coroutineScope {
+                withContext(Dispatchers.IO.limitedParallelism(4)) {
+                    toFetch.map { id -> async { machineRepo.getShotDetail(id).getOrNull() } }.awaitAll()
+                }
+            }
+            fetched.forEach { detail ->
                 if (detail != null) {
                     localRepo.saveShot(ShotEntity.fromShotRecord(detail.toShotRecord()))
                     shotsAdded++

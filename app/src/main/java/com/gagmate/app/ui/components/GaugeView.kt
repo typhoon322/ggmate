@@ -11,17 +11,25 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gagmate.app.theme.GagMateSpacing
+import com.gagmate.app.theme.gagMateColors
 
 /**
- * Arc gauge for displaying machine metrics like temperature, pressure, flow.
- * Features animated sweep and configurable color ranges.
+ * Arc gauge for machine metrics (temperature, pressure, flow, steam).
+ *
+ * - Track + fill colors come from the [gagMateColors] token set.
+ * - Animated sweep gives a sense of live change without being distracting.
+ * - A single merged content description ("Boiler T: 93.0 °C") is provided so
+ *   screen readers announce the value once instead of reading the raw pieces.
  */
 @Composable
 fun GaugeView(
@@ -29,19 +37,29 @@ fun GaugeView(
     maxValue: Float,
     label: String,
     unit: String,
-    gaugeColor: Color = MaterialTheme.colorScheme.primary,
+    gaugeColor: Color = Color.Unspecified,
     modifier: Modifier = Modifier,
-    size: Dp = 140.dp,
-    strokeWidth: Dp = 12.dp
+    size: Dp = 132.dp,
+    strokeWidth: Dp = 12.dp,
+    /** When true (e.g. machine not connected, no data) show "—" instead of 0. */
+    showDash: Boolean = false
 ) {
+    val colors = gagMateColors()
+    val resolvedGaugeColor = if (gaugeColor == Color.Unspecified) colors.gaugeTemperature else gaugeColor
+
     val animatedValue by animateFloatAsState(
-        targetValue = value / maxValue,
+        targetValue = if (showDash) 0f else value / maxValue,
         animationSpec = tween(durationMillis = 800),
         label = "gauge"
     )
 
+    val valueText = if (showDash) "—" else "%.1f".format(value)
+    val semanticsText = if (showDash) "$label: —" else "$label: ${"%.1f".format(value)} $unit"
+
     Column(
-        modifier = modifier.size(size),
+        modifier = modifier
+            .size(size)
+            .clearAndSetSemantics { contentDescription = semanticsText },
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
@@ -55,32 +73,32 @@ fun GaugeView(
                 val arcSize = size.toPx() - strokeWidth.toPx()
                 val topLeft = Offset(padding, padding)
 
-                // Background arc (270 degrees starting from 135)
+                // Background track (270deg starting at 135deg)
                 drawArc(
-                    color = gaugeColor.copy(alpha = 0.15f),
+                    color = colors.gaugeTrack,
                     startAngle = 135f,
                     sweepAngle = 270f,
                     useCenter = false,
                     topLeft = topLeft,
-                    size = androidx.compose.ui.geometry.Size(arcSize, arcSize),
+                    size = Size(arcSize, arcSize),
                     style = stroke
                 )
 
                 // Foreground arc
                 drawArc(
-                    color = gaugeColor,
+                    color = resolvedGaugeColor,
                     startAngle = 135f,
                     sweepAngle = 270f * animatedValue.coerceIn(0f, 1f),
                     useCenter = false,
                     topLeft = topLeft,
-                    size = androidx.compose.ui.geometry.Size(arcSize, arcSize),
+                    size = Size(arcSize, arcSize),
                     style = stroke
                 )
             }
 
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
-                    text = String.format("%.1f", value),
+                    text = valueText,
                     style = MaterialTheme.typography.displayLarge.copy(
                         fontWeight = FontWeight.Bold,
                         fontSize = (size.value / 5).sp
@@ -95,8 +113,7 @@ fun GaugeView(
             }
         }
 
-        Spacer(modifier = Modifier.height(4.dp))
-
+        Spacer(modifier = Modifier.height(GagMateSpacing.xs))
         Text(
             text = label,
             style = MaterialTheme.typography.labelLarge,

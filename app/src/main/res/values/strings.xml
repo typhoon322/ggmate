@@ -12,9 +12,12 @@
     <string name="dashboard_title">GagMate</string>
     <string name="dashboard_connected">Connected</string>
     <string name="dashboard_connecting">Connecting…</string>
+    <string name="dashboard_disconnected">Disconnected</string>
+    <string name="dashboard_offline_hint">Not connected</string>
     <string name="dashboard_refresh">Refresh</string>
     <string name="dashboard_cannot_connect">Cannot Connect</string>
     <string name="dashboard_configure">Configure Connection</string>
+    <string name="dashboard_retry">Retry</string>
     <string name="dashboard_start_brew">Start Brew</string>
     <string name="dashboard_stop_brew">Stop Brew</string>
     <string name="dashboard_active_brew">Active Brew</string>
@@ -41,6 +44,25 @@
     <string name="dashboard_celsius">°C</string>
     <string name="dashboard_error_lost">Connection lost: %1$s</string>
     <string name="dashboard_error_connect">Cannot connect: %1$s</string>
+
+    <!-- Dashboard (new design system) -->
+    <string name="dashboard_no_profile">No profile</string>
+    <string name="dashboard_active_profile">Active profile</string>
+    <string name="dashboard_profile_globals">Profile Globals</string>
+    <string name="dashboard_profile_curve">Profile Curve</string>
+    <string name="dashboard_target_pressure">Target Pressure</string>
+    <string name="dashboard_target_flow">Target Flow</string>
+    <string name="dashboard_target_time">Target Time</string>
+    <string name="dashboard_setpoint_short">Setpoint</string>
+    <string name="dashboard_hero_uptime">Uptime</string>
+    <string name="dashboard_weight">Target weight</string>
+    <string name="dashboard_status_brewing">Brewing</string>
+    <string name="dashboard_status_heating">Heating</string>
+    <string name="dashboard_status_idle">Idle</string>
+    <string name="dashboard_status_steam">Steam</string>
+    <string name="dashboard_status_offline">Disconnected</string>
+    <string name="dashboard_status_connecting">Connecting</string>
+    <string name="dashboard_status_reconnecting">Reconnecting</string>
 
     <!-- Profiles -->
     <string name="profiles_title">Profiles</string>
@@ -78,6 +100,11 @@
     <string name="profile_edit_time">Time (s)</string>
     <string name="profile_edit_remove">Remove</string>
     <string name="profile_edit_add_phase">Add Phase</string>
+    <string name="profile_saving">Saving…</string>
+    <string name="profile_saved_hint">Saved to machine</string>
+    <string name="profile_phases">Phases</string>
+    <string name="profile_no_phases">No phase data</string>
+    <string name="profile_fetching_phases">Fetching phase data…</string>
 
     <!-- Paste JSON Dialog -->
     <string name="paste_title">Paste Profile JSON</string>
@@ -118,6 +145,7 @@
     <string name="settings_connected_to">Connected to ggboard at %1$s:%2$s</string>
     <string name="settings_about">About</string>
     <string name="settings_version">GagMate v1.0.0</string>
+    <string name="settings_build_time">Build Time: %1$s</string>
     <string name="settings_description">A companion app for Gagguino coffee machines. Connects to ggboard to monitor and control your espresso machine.</string>
 
     <!-- Network Log -->
@@ -136,4 +164,17 @@
     <string name="general_ml">ml</string>
     <string name="general_seconds">s</string>
     <string name="general_minutes">m</string>
+
+    <!-- Live Curve (auto-opened when a brew starts) -->
+    <string name="live_curve_title">Live Curve</string>
+    <string name="live_curve_brewing">Brewing</string>
+    <string name="live_curve_idle">Idle</string>
+    <string name="live_curve_waiting">Waiting for brew data…</string>
+
+    <!-- History Chart (landscape) -->
+    <string name="history_chart_title">Shot Chart</string>
+    <string name="history_chart_no_data">No chart data for this shot</string>
+    <string name="history_chart_zoom_in">Zoom in</string>
+    <string name="history_chart_zoom_out">Zoom out</string>
+    <string name="history_chart_hint">Drag to scrub · Zoom + slider to pan</string>
 </resources>

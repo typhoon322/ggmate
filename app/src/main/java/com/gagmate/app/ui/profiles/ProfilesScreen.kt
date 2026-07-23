@@ -3,6 +3,7 @@ import androidx.compose.ui.res.stringResource
 import com.gagmate.app.R
 
 import android.content.Intent
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
@@ -32,36 +33,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.local.entity.SyncStatus
-import com.gagmate.app.ui.components.BrewChartView
-import com.gagmate.app.ui.components.ChartPoint
 import androidx.compose.runtime.collectAsState
+import com.gagmate.app.ui.components.PageHeader
 import com.gagmate.app.ui.components.PhaseIndicator
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.ui.components.ProfileCard
-import com.gagmate.app.data.model.BrewPhase
-import com.gagmate.app.data.model.PhaseV3
-import com.gagmate.app.data.model.PhaseTarget
 import androidx.lifecycle.viewmodel.compose.viewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfilesScreen(
-    viewModel: ProfilesViewModel = viewModel()
+    viewModel: ProfilesViewModel = viewModel(),
+    onOpenProfile: (String) -> Unit = {}
 ) {
     val profiles by viewModel.profiles.collectAsState()
-    val isLoading by viewModel.isLoading.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
     val error by viewModel.error.collectAsState()
     val pendingUploadCount by viewModel.pendingUploadCount.collectAsState()
     val syncMessage by viewModel.syncMessage.collectAsState()
 
     val context = LocalContext.current
-    var showDetailDialog by remember { mutableStateOf(false) }
-    var selectedProfile by remember { mutableStateOf<ProfileEntity?>(null) }
     var showImportError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
-    var showEditDialog by remember { mutableStateOf(false) }
-    var editingProfile by remember { mutableStateOf<ProfileEntity?>(null) }
     var showPasteDialog by remember { mutableStateOf(false) }
     var pasteJsonText by remember { mutableStateOf("") }
 
@@ -78,15 +71,43 @@ fun ProfilesScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
+        contentWindowInsets = WindowInsets(0.dp),
+        floatingActionButton = {
+            ExtendedFloatingActionButton(
+                onClick = {
+                    jsonImportLauncher.launch("application/json")
+                },
+                icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
+                text = { Text(stringResource(R.string.profiles_import)) }
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // ── Pinned page header (fixed below the system status bar) ──
+            PageHeader(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 title = {
                     Text(
                         text = "Profiles",
-                        style = MaterialTheme.typography.titleLarge
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
                     )
                 },
                 actions = {
+                    if (isSyncing) {
+                        CircularProgressIndicator(
+                            modifier = Modifier
+                                .padding(horizontal = 4.dp)
+                                .size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                    }
                     IconButton(onClick = { viewModel.loadProfiles() }) {
                         Icon(Icons.Default.Refresh, contentDescription = stringResource(R.string.dashboard_refresh))
                     }
@@ -98,39 +119,18 @@ fun ProfilesScreen(
                     IconButton(onClick = { showPasteDialog = true }) {
                         Icon(Icons.Default.ContentPaste, contentDescription = stringResource(R.string.profiles_paste))
                     }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    jsonImportLauncher.launch("application/json")
-                },
-                icon = { Icon(Icons.Default.FileOpen, contentDescription = null) },
-                text = { Text(stringResource(R.string.profiles_import)) }
-            )
-        }
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-        ) {
-            when {
-                isLoading -> {
-                    CircularProgressIndicator(
-                        modifier = Modifier.align(Alignment.Center)
-                    )
                 }
-                profiles.isEmpty() && !isLoading -> {
+            )
+
+            when {
+                profiles.isEmpty() && !isSyncing -> {
                     Column(
                         modifier = Modifier
-                            .align(Alignment.Center)
+                            .fillMaxSize()
+                            .weight(1f)
                             .padding(32.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
                             text = stringResource(R.string.profiles_no_profiles),
@@ -154,8 +154,10 @@ fun ProfilesScreen(
                 }
                 else -> {
                     LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(16.dp),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .weight(1f),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(profiles, key = { it.name + it.author }) { profile ->
@@ -163,12 +165,10 @@ fun ProfilesScreen(
                                 profile = profile,
                                 isActive = false,
                                 onClick = {
-                                    selectedProfile = profile
-                                    showDetailDialog = true
+                                    onOpenProfile(profile.id)
                                 },
                                 onEdit = {
-                                    editingProfile = profile
-                                    showEditDialog = true
+                                    onOpenProfile(profile.id)
                                 },
                                 onExport = {
                                     val json = viewModel.exportProfileAsJson(profile)
@@ -183,7 +183,7 @@ fun ProfilesScreen(
                                     )
                                 },
                                 onDelete = {
-                                    profile.machineProfileId?.let { viewModel.deleteProfile(it) }
+                                    viewModel.deleteProfile(profile.id)
                                 }
                             )
                         }
@@ -193,8 +193,7 @@ fun ProfilesScreen(
                             OutlinedButton(
                                 onClick = {
                                     val sample = viewModel.createSampleProfile()
-                                    selectedProfile = sample
-                                    showDetailDialog = true
+                                    onOpenProfile(sample.id)
                                 },
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -213,7 +212,7 @@ fun ProfilesScreen(
             if (error != null) {
                 Snackbar(
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(Alignment.CenterHorizontally)
                         .padding(16.dp),
                     action = {
                         TextButton(onClick = { viewModel.loadProfiles() }) {
@@ -235,8 +234,6 @@ fun ProfilesScreen(
                         showPasteDialog = false
                         pasteJsonText = ""
                         viewModel.loadProfiles()
-                        showPasteDialog = false
-                        pasteJsonText = ""
                     },
                     onDismiss = {
                         showPasteDialog = false
@@ -261,35 +258,10 @@ fun ProfilesScreen(
         }
     }
 
-    // Profile detail dialog
-    if (showDetailDialog && selectedProfile != null) {
-        ProfileDetailDialog(
-            profile = selectedProfile!!,
-            onDismiss = { showDetailDialog = false },
-            onEdit = {
-                showDetailDialog = false
-                editingProfile = selectedProfile
-                showEditDialog = true
-            }
-        )
-    }
-
-    // Profile edit dialog
-    if (showEditDialog && editingProfile != null) {
-        ProfileEditDialog(
-            profile = editingProfile!!,
-            onDismiss = { showEditDialog = false },
-            onSave = { edited ->
-                showEditDialog = false
-                viewModel.saveEditedProfile(edited)
-            }
-        )
-    }
-
-    // Sync result message banner
+    // Toast when fresh data arrives from a background sync (no blocking loading UI).
     LaunchedEffect(syncMessage) {
         if (syncMessage != null) {
-            kotlinx.coroutines.delay(3000)
+            Toast.makeText(context, syncMessage, Toast.LENGTH_SHORT).show()
             viewModel.clearSyncMessage()
         }
     }
@@ -352,353 +324,4 @@ private fun PasteJsonDialog(
             }
         }
     )
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ProfileEditDialog(
-    profile: ProfileEntity,
-    onDismiss: () -> Unit,
-    onSave: (ProfileEntity) -> Unit
-) {
-    var editedName by remember { mutableStateOf(profile.name) }
-    var editedAuthor by remember { mutableStateOf(profile.author) }
-    var editedNotes by remember { mutableStateOf(profile.notes) }
-    var editedPhases by remember {
-        val phases: List<com.gagmate.app.data.model.BrewPhase> = try {
-            profile.toShotProfile().phases
-        } catch (_: Exception) { emptyList() }
-        mutableStateOf(phases.toMutableList())
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Edit Profile: ${profile.name}") },
-        text = {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                item {
-                        OutlinedTextField(
-                            value = editedName,
-                            onValueChange = { editedName = it },
-                            label = { Text(stringResource(R.string.profile_edit_name)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = editedAuthor,
-                            onValueChange = { editedAuthor = it },
-                            label = { Text(stringResource(R.string.profile_edit_author)) },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = editedNotes,
-                            onValueChange = { editedNotes = it },
-                            label = { Text(stringResource(R.string.profile_edit_notes)) },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 80.dp),
-                            maxLines = 5
-                        )
-                    }
-
-                    items(editedPhases.indices.toList()) { idx ->
-                    val phase = editedPhases[idx]
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = phase.name,
-                                    onValueChange = { newName ->
-                                        editedPhases = editedPhases.toMutableList().apply {
-                                            set(idx, phase.copy(name = newName))
-                                        }
-                                    },
-                                    label = { Text(stringResource(R.string.profile_edit_phase_name)) },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true
-                                )
-                                IconButton(onClick = {
-                                    editedPhases = editedPhases.toMutableList().apply { removeAt(idx) }
-                                }) {
-                                    Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.profile_edit_remove), tint = MaterialTheme.colorScheme.error)
-                                }
-                            }
-                            // Phase type selector
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    "Type:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                FilterChip(
-                                    selected = phase.type == "pressure",
-                                    onClick = {
-                                        editedPhases = editedPhases.toMutableList().apply {
-                                            set(idx, phase.copy(type = "pressure"))
-                                        }
-                                    },
-                                    label = { Text("Pressure", fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                FilterChip(
-                                    selected = phase.type == "flow",
-                                    onClick = {
-                                        editedPhases = editedPhases.toMutableList().apply {
-                                            set(idx, phase.copy(type = "flow"))
-                                        }
-                                    },
-                                    label = { Text("Flow", fontSize = 12.sp) },
-                                    modifier = Modifier.weight(1f)
-                                )
-                            }
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedTextField(
-                                    value = phase.target.toString(),
-                                    onValueChange = { newVal ->
-                                        val parsed = newVal.toFloatOrNull() ?: phase.target
-                                        editedPhases = editedPhases.toMutableList().apply {
-                                            set(idx, phase.copy(target = parsed))
-                                        }
-                                    },
-                                    label = { Text("Target (${if (phase.type == "pressure") "bar" else "ml/s"})") },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                                )
-                                OutlinedTextField(
-                                    value = phase.time.toString(),
-                                    onValueChange = { newVal ->
-                                        val parsed = newVal.toFloatOrNull() ?: phase.time
-                                        editedPhases = editedPhases.toMutableList().apply {
-                                            set(idx, phase.copy(time = parsed))
-                                        }
-                                    },
-                                    label = { Text(stringResource(R.string.profile_edit_time)) },
-                                    modifier = Modifier.weight(1f),
-                                    singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                item {
-                    OutlinedButton(
-                        onClick = {
-                            editedPhases = editedPhases.toMutableList().apply {
-                                add(BrewPhase(
-                                    name = "Phase ${this.size + 1}",
-                                    target = 0f,
-                                    time = 0f
-                                ))
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = null)
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.profile_edit_add_phase))
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = {
-                onSave(profile.copy(name = editedName, author = editedAuthor, notes = editedNotes, phasesJson = com.google.gson.Gson().toJson(editedPhases)))
-            }) {
-                Text(stringResource(R.string.profiles_save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.profiles_cancel))
-            }
-        }
-    )
-}
-
-/** Generate chart data points from brew phases for profile visualization. */
-private fun generateProfileChartPoints(phases: List<BrewPhase>, resolution: Float = 0.25f): List<ChartPoint> {
-    if (phases.isEmpty()) return emptyList()
-    val points = mutableListOf<ChartPoint>()
-    var elapsed = 0f
-    var pressure = 0f
-    var flow = 0f
-
-    for (phase in phases) {
-        val duration = phase.time.coerceAtLeast(0.1f)
-        var t = 0f
-        while (t < duration) {
-            when (phase.type) {
-                "pressure" -> pressure = phase.target
-                "flow" -> flow = phase.target
-            }
-            points.add(ChartPoint(
-                time = elapsed + t,
-                pressure = pressure,
-                flowRate = flow
-            ))
-            t = (t + resolution).coerceAtMost(duration)
-        }
-        elapsed += duration
-    }
-    return points
-}
-
-@Composable
-private fun ProfileDetailDialog(
-    profile: ProfileEntity,
-    onDismiss: () -> Unit,
-    onEdit: () -> Unit = {}) {
-    val phasesFromJson = try { profile.toShotProfile().phases } catch (_: Exception) { emptyList() }
-    val hasNoPhases = phasesFromJson.isEmpty() && profile.machineProfileId != null
-    var loadingPhases by remember { mutableStateOf(hasNoPhases) }
-
-    LaunchedEffect(profile.id) {
-        if (hasNoPhases) {
-            val intId = profile.machineProfileId!!.toIntOrNull()
-            if (intId != null) {
-                AppContainer.machineSession.sendGetProfile(intId)
-            }
-            loadingPhases = false // show loading while waiting for WS response
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(text = profile.name, style = MaterialTheme.typography.headlineSmall)
-        },
-        text = {
-            val phasesList = try {
-                profile.toShotProfile().phases.takeIf { it.isNotEmpty() }
-            } catch (_: Exception) { null }
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                // Profile chart
-                item {
-                    val chartPoints = phasesList?.let { generateProfileChartPoints(it) } ?: emptyList()
-                    if (chartPoints.isNotEmpty()) {
-                        BrewChartView(
-                            dataPoints = chartPoints,
-                            modifier = Modifier.fillMaxWidth(),
-                            height = 160.dp
-                        )
-                        Spacer(Modifier.height(8.dp))
-                    }
-                }
-
-                item {
-                    if (profile.author.isNotBlank()) {
-                        Text(
-                            text = "by ${profile.author}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (profile.notes.isNotBlank()) {
-                        Text(
-                            text = profile.notes,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                    }
-                }
-
-                if (phasesList != null && phasesList.isNotEmpty()) {
-                    item {
-                        Text(
-                            text = "Phases",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 8.dp)
-                        )
-                    }
-
-                if (loadingPhases && (phasesList == null || phasesList.isEmpty())) {
-                    item {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                            Spacer(Modifier.width(8.dp))
-                            Text("Fetching phase data...")
-                        }
-                    }
-                }
-                    itemsIndexed(phasesList) { index, phase ->
-                        PhaseCard(index = index + 1, phase = phase.toPhaseV3())
-                    }
-                }
-            }
-        },
-        confirmButton = {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onEdit) {
-                    Text(stringResource(R.string.profiles_edit))
-                }
-                TextButton(onClick = onDismiss) {
-                    Text(stringResource(R.string.profiles_close))
-                }
-            }
-        }
-    )
-}
-
-private fun BrewPhase.toPhaseV3(): PhaseV3 = PhaseV3(
-    name = name,
-    type = type.uppercase(),
-    target = PhaseTarget(end = target, time = (time * 1000).toInt()),
-    skip = false
-)
-
-@Composable
-private fun PhaseCard(index: Int, phase: PhaseV3) {
-    val targetText = if (phase.target != null) {
-        val t = phase.target!!
-        val unit = if (phase.type == "FLOW") " ml/s" else " bar"
-        "${String.format("%.1f", t.end)}$unit in ${t.time / 1000}s" + 
-        (if (t.start != null) " (from ${String.format("%.1f", t.start)})" else "") +
-        " ${t.curve}"
-    } else ""
-    val stopText = listOfNotNull(
-        phase.stopConditions?.time?.let { "${it / 1000}s" },
-        phase.stopConditions?.pressureAbove?.let { ">${it}bar" },
-        phase.stopConditions?.pressureBelow?.let { "<${it}bar" },
-        phase.stopConditions?.waterPumpedInPhase?.let { "${it}ml" }
-    ).joinToString(" ")
-    Card(
-        modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp)
-    ) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = "Phase $index: ${phase.name}",
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Type: ${phase.type}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            if (targetText.isNotBlank()) {
-                Text(
-                    text = "Target: $targetText",
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-            if (stopText.isNotBlank()) {
-                Text(
-                    text = "Stop: $stopText",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
-                )
-            }
-        }
-    }
 }

@@ -1,3 +1,7 @@
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -20,6 +24,10 @@ android {
         vectorDrawables {
             useSupportLibrary = true
         }
+
+        // 每次打包自动刷新：注入打包时间
+        val buildTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US).format(Date())
+        buildConfigField("String", "BUILD_TIME", "\"$buildTime\"")
     }
 
     buildTypes {
@@ -43,6 +51,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     composeOptions {

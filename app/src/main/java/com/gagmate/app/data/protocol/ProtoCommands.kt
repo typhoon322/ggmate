@@ -62,6 +62,16 @@ object Commands {
     /** Descale mode constant */
     const val MODE_DESCALE = 3
 
+    /** Standby mode — halts any running operation (incl. a brew). */
+    const val MODE_STANDBY = 0
+
+    /**
+     * Normal/brew-ready mode. Entering this arms the machine so a shot can be
+     * pulled on the brew switch. There is no dedicated "start shot" WS command
+     * in the Gaggiuino v3 opmode set, so this is the closest real control.
+     */
+    const val MODE_NORMAL = 1
+
     // ── Full command builders ─────────────────────────────────────
 
     /** Build the complete command frame for profile selection. */
@@ -98,12 +108,148 @@ object Commands {
     fun buildNormalOpMode(): ByteArray =
         ProtoCodec.buildCommand(SET_OP_MODE, null)
 
-    /**
-     * Build the complete command frame for updating the active profile (c_upd_act_prof).
-     * @param payload The full profile protobuf bytes (name + phases + settings + temperature).
-     */
+    /** Build the complete command frame for updating the active profile (c_upd_act_prof). */
     fun buildUpdateActiveProfileCmd(payload: ByteArray): ByteArray =
         ProtoCodec.buildCommand(UPDATE_ACTIVE_PROFILE, payload)
+
+    /**
+     * Read the temperature setpoint (profile field 4, wire type 5 float) from a
+     * profile protobuf payload. Returns null if the field is not found.
+     */
+    fun readProfileTemperature(payload: ByteArray): Float? {
+        val tag4wt5 = ((4 shl 3) or 5).toByte()  // 0x25
+        var i = 0
+        while (i < payload.size) {
+            if (payload[i] == tag4wt5 && i + 5 <= payload.size) {
+                return ByteBuffer.wrap(payload, i + 1, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).float
+            }
+            val tag = payload[i].toInt() and 0xFF
+            val wt = tag and 0x07
+            i++
+            when (wt) {
+                0 -> {
+                    while (i < payload.size && (payload[i].toInt() and 0x80) != 0) i++
+                    i++
+                }
+                2 -> {
+                    var len = 0L; var shift = 0
+                    while (i < payload.size) {
+                        val b = payload[i].toInt() and 0xFF
+                        len = len or ((b and 0x7F).toLong() shl shift)
+                        shift += 7; i++
+                        if (b and 0x80 == 0) break
+                    }
+                    i += len.toInt()
+                }
+                5 -> i += 4
+                else -> i = payload.size
+            }
+        }
+        return null
+    }
+
+    /**
+     * Read the target weight (profile field 3, inner field 2, wire type 5 float) from a
+     * profile protobuf payload. Returns null if the field is not found.
+     */
+    fun readProfileTargetWeight(payload: ByteArray): Float? {
+        val g = extractProfileGlobals(payload)
+        return g.targetWeight
+    }
+
+    /**
+     * All global setpoints read from a profile protobuf payload:
+     *  - waterTemperature   (field 4, wt5 float)            °C
+     *  - targetWeight       (field 3 inner field 2, wt5)    g   — global stop condition
+     *  - targetPumpPressure (field 3 inner field 3, wt5)    bar
+     *  - targetPumpFlow     (field 3 inner field 4, wt5)     ml/s
+     *  - targetTime         (field 3 inner field 5, wt5)    s
+     * Any absent field yields null so callers can keep the previously known value.
+     */
+    data class ProfileGlobals(
+        val waterTemperature: Float? = null,
+        val targetWeight: Float? = null,
+        val targetPumpPressure: Float? = null,
+        val targetPumpFlow: Float? = null,
+        val targetTime: Float? = null
+    )
+
+    fun extractProfileGlobals(payload: ByteArray): ProfileGlobals {
+        var waterTemp: Float? = null
+        var targetWeight: Float? = null
+        var targetPressure: Float? = null
+        var targetFlow: Float? = null
+        var targetTime: Float? = null
+        var i = 0
+        while (i < payload.size) {
+            val tag = payload[i].toInt() and 0xFF
+            // field 4, wire type 5 → waterTemperature (float)
+            if (tag == ((4 shl 3) or 5)) {
+                if (i + 5 <= payload.size)
+                    waterTemp = ByteBuffer.wrap(payload, i + 1, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).float
+                i += 5; continue
+            }
+            // field 3, wire type 2 → GlobalStopConditions (nested message)
+            if (tag == ((3 shl 3) or 2)) {
+                i++
+                var len = 0L; var shift = 0
+                while (i < payload.size) {
+                    val b = payload[i].toInt() and 0xFF
+                    len = len or ((b and 0x7F).toLong() shl shift); shift += 7; i++
+                    if (b and 0x80 == 0) break
+                }
+                val end = i + len.toInt()
+                while (i < end) {
+                    val innerTag = payload[i].toInt() and 0xFF
+                    val fn = innerTag shr 3
+                    val wt = innerTag and 0x07
+                    i++
+                    if (wt == 5) {
+                        if (i + 4 <= end) {
+                            val f = ByteBuffer.wrap(payload, i, 4).order(java.nio.ByteOrder.LITTLE_ENDIAN).float
+                            when (fn) {
+                                2 -> targetWeight = f
+                                3 -> targetPressure = f
+                                4 -> targetFlow = f
+                                5 -> targetTime = f
+                            }
+                        }
+                        i += 4
+                    } else if (wt == 0) {
+                        while (i < end && (payload[i].toInt() and 0x80) != 0) i++
+                        i++
+                    } else if (wt == 2) {
+                        var l = 0L; var s = 0
+                        while (i < end) {
+                            val b = payload[i].toInt() and 0xFF
+                            l = l or ((b and 0x7F).toLong() shl s); s += 7; i++
+                            if (b and 0x80 == 0) break
+                        }
+                        i += l.toInt()
+                    } else { i = end }
+                }
+                continue
+            }
+            // skip any other field
+            val wt = tag and 0x07
+            i++
+            when (wt) {
+                0 -> { while (i < payload.size && (payload[i].toInt() and 0x80) != 0) i++; i++ }
+                2 -> {
+                    var len = 0L; var shift = 0
+                    while (i < payload.size) {
+                        val b = payload[i].toInt() and 0xFF
+                        len = len or ((b and 0x7F).toLong() shl shift); shift += 7; i++
+                        if (b and 0x80 == 0) break
+                    }
+                    i += len.toInt()
+                }
+                5 -> i += 4
+                else -> i = payload.size
+            }
+        }
+        return ProfileGlobals(waterTemp, targetWeight, targetPressure, targetFlow, targetTime)
+    }
 
     /**
      * Modify the temperature setpoint (profile field 4, wire type 5 float) in a profile protobuf payload.

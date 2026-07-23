@@ -4,6 +4,7 @@ import com.google.gson.annotations.SerializedName
 import com.google.gson.JsonElement
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.gagmate.app.util.normalizeShotTimestamp
 
 /**
  * A single data point during a brew shot (old format, kept for local DB compat).
@@ -83,7 +84,7 @@ data class ShotRecordApi(
         val lastShotWeight = points.lastOrNull()?.shotWeight ?: 0f
         return ShotRecord(
             id = id.toString(),
-            timestamp = timestamp * 1000L,
+            timestamp = normalizeShotTimestamp(timestamp),
             profile = profile?.name ?: "",
             duration = durationSec,
             volume = if (lastShotWeight > 0f) lastShotWeight

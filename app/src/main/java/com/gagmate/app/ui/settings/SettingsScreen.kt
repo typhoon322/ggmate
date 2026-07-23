@@ -19,11 +19,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.data.repository.AppContainer
+import com.gagmate.app.BuildConfig
 import com.gagmate.app.LocaleHelper
 import com.gagmate.app.data.system.DebugLogState
+import com.gagmate.app.ui.components.PageHeader
 import com.gagmate.app.ui.components.WsOverlayControl
 import com.gagmate.app.ui.settings.SettingsViewModel.ConnectionStatus
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,28 +55,42 @@ fun SettingsScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(stringResource(R.string.settings_title)) },
+        contentWindowInsets = WindowInsets(0.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+        ) {
+            // ── Pinned page header (fixed below the system status bar) ──
+            PageHeader(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 navigationIcon = {
                     TextButton(onClick = onBack) {
                         Text(stringResource(R.string.settings_back))
                     }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
+                title = {
+                    Text(
+                        stringResource(R.string.settings_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             )
-        }
-    ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
+
+            // ── Scrollable body (strictly below the pinned header) ──
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .weight(1f)
+                    .padding(horizontal = 16.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+
             // Connection section
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -258,6 +275,11 @@ fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     Text(
+                        text = stringResource(R.string.settings_build_time, BuildConfig.BUILD_TIME),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
                         text = "A companion app for Gagguino coffee machines. Connects to ggboard to monitor and control your espresso machine.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -413,6 +435,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            } // end scroll body
         }
     }
 

@@ -41,8 +41,8 @@ class MainActivity : ComponentActivity() {
                 AppContainer.syncManager.fullSync()
             } catch (_: Exception) { /* silent – user can sync from Settings */ }
         }
-        // Start global machine session
-        AppContainer.machineSession.start(appScope)
+        // Start global machine session (pass Context so connection chime can play)
+        AppContainer.machineSession.start(appScope, this)
 
         enableEdgeToEdge()
         setContent {

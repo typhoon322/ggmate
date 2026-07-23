@@ -120,7 +120,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             settingsRepository.saveSettings(_host.value, _port.value)
             val port = _port.value.toIntOrNull() ?: 80
             machineRepository.updateConnection(_host.value, port)
-            AppContainer.machineSession.restart(_host.value.removePrefix("http://").removeSuffix("/"))
+            AppContainer.machineSession.restart(_host.value)
             _savedMessage.value = "Connection settings saved"
         }
     }

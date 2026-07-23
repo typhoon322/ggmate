@@ -1,5 +1,7 @@
 package com.gagmate.app.data.repository
 
+import android.util.Log
+import com.gagmate.app.BuildConfig
 import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.model.BrewPhase
@@ -38,14 +40,35 @@ class ProfileRepository(
                 try {
                     val profiles = localRepo.getAllProfiles()
                     val match = profiles.find { it.name == name }
-                    if (match != null) {
-                        val updated = match.copy(
-                            phasesJson = gson.toJson(phases),
-                            localUpdatedAt = System.currentTimeMillis()
+                    if (BuildConfig.DEBUG)
+                        Log.d(
+                            "GagMateProfile",
+                            "WS→Room: received name='$name' phases=${phases.size}; " +
+                                "localNames=[${profiles.joinToString { "'${it.name}'" }}] matched=${match != null}"
                         )
-                        localRepo.saveProfile(updated)
+                    if (match != null) {
+                        // This firmware's WS protobuf profile stream is known to
+                        // emit all-zero phases; never let that clobber the
+                        // authoritative REST-synced data already in the DB.
+                        val allZero = phases.isNotEmpty() && phases.all { it.target == 0f && it.time <= 0.1f }
+                        if (allZero) {
+                            if (BuildConfig.DEBUG)
+                                Log.w("GagMateProfile", "WS→Room: dropped all-zero phases for name='$name' (would clobber REST data)")
+                        } else {
+                            val updated = match.copy(
+                                phasesJson = gson.toJson(phases),
+                                localUpdatedAt = System.currentTimeMillis()
+                            )
+                            localRepo.saveProfile(updated)
+                            if (BuildConfig.DEBUG)
+                                Log.d("GagMateProfile", "WS→Room: WROTE phasesJson (${updated.phasesJson.length}B) for name='$name'")
+                        }
+                    } else if (BuildConfig.DEBUG) {
+                        Log.w("GagMateProfile", "WS→Room: NO local profile matched name='$name' — phases dropped")
                     }
-                } catch (_: Exception) { }
+                } catch (e: Exception) {
+                    if (BuildConfig.DEBUG) Log.e("GagMateProfile", "WS→Room: error for name='$name': ${e.message}")
+                }
             }
         }
     }
@@ -65,6 +88,9 @@ class ProfileRepository(
 
     /** Get a single profile by local ID. */
     suspend fun getProfileById(id: String): ProfileEntity? = localRepo.getProfileById(id)
+
+    /** Live, auto-updating single profile (for the detail dialog). */
+    fun observeProfile(id: String) = localRepo.observeProfile(id)
 
     // ── Sync ────────────────────────────────────────────────────
 
@@ -107,6 +133,28 @@ class ProfileRepository(
     fun exportAsJson(entity: ProfileEntity): String = gson.toJson(entity.toShotProfile())
 
     // ── Edit ────────────────────────────────────────────────────
+
+    /**
+     * Push an edited profile to the machine first.
+     * Only after the machine confirms (HTTP 200 from POST /api/profile) do we
+     * persist the change to the local DB. If the push fails / is not acknowledged,
+     * nothing is written locally — the edit is simply discarded.
+     *
+     * Returns a [Result]: success means machine confirmed + local DB updated;
+     * failure means the machine rejected/never confirmed and local data is untouched.
+     */
+    suspend fun pushAndSaveIfConfirmed(entity: ProfileEntity): Result<Unit> {
+        return runCatching {
+            // 1) Push to machine. HTTP 200 = "machine accepted the change".
+            machineRepo.uploadProfile(entity.toShotProfile()).getOrThrow()
+            // 2) Only after confirmation: persist the full edited entity locally.
+            localRepo.saveProfile(entity.copy(
+                syncStatus = SyncStatus.SYNCED,
+                localUpdatedAt = System.currentTimeMillis(),
+                machineUpdatedAt = System.currentTimeMillis()
+            ))
+        }
+    }
 
     /** Save an edited profile locally + auto-upload to machine. */
     suspend fun saveEditedProfile(entity: ProfileEntity): String? {

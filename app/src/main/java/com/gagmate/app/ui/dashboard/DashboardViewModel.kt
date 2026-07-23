@@ -7,6 +7,7 @@ import com.gagmate.app.data.model.MachineState
 import com.gagmate.app.R
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.data.session.ConnectionState
+import com.gagmate.app.data.protocol.Commands
 import com.gagmate.app.data.system.SoundManager
 import com.gagmate.app.ui.components.ChartPoint
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /** Transient info/success messages (shown as a Toast/Snackbar, never as an error takeover). */
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
     private val _flushActive = MutableStateFlow(false)
     val flushActive: StateFlow<Boolean> = _flushActive.asStateFlow()
 
@@ -58,37 +63,17 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     private val _targetWeight = MutableStateFlow(40f)
     val targetWeight: StateFlow<Float> = _targetWeight.asStateFlow()
 
-    companion object {
-        /** Threshold in ms: timeInShot below this means a new shot. */
-        private const val NEW_SHOT_THRESHOLD_MS = 100
-    }
-
     // ── Initialisation ────────────────────────────────────────────
 
     init {
         // Connection state
         viewModelScope.launch {
             session.connectionState.collect { state ->
-                val wasConnecting = _isLoading.value
-                when (state) {
-                    ConnectionState.CONNECTED -> {
-                        _isConnected.value = true
-                        // Sound played once by MachineSessionManager.onOpen
-                        _isLoading.value = false
-                        _error.value = null
-                    }
-                    ConnectionState.CONNECTING -> {
-                        _isLoading.value = true
-                    }
-                    ConnectionState.DISCONNECTED -> {
-                        _isConnected.value = false
-                        _isLoading.value = false
-                    }
-                    ConnectionState.ERROR -> {
-                        _isConnected.value = false
-                        _isLoading.value = false
-                    }
-                }
+                _isConnected.value = state == ConnectionState.CONNECTED
+                _isLoading.value = state == ConnectionState.CONNECTING
+                // Only a terminal ERROR keeps the error takeover; transient drops
+                // (RECONNECTING) and normal states clear it so the dashboard stays visible.
+                if (state != ConnectionState.ERROR) _error.value = null
             }
         }
 
@@ -110,28 +95,10 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
                 )
             }
         }
+        // Live shot weight — the rolling chart buffer itself is now fed
+        // directly by ShotRepository (survives navigation to the curve screen).
         viewModelScope.launch {
-            session.shotSnapshot.collect { shot ->
-                _machineState.value = _machineState.value.copy(
-                    weight = (shot?.weight ?: 0f).toString()
-                )
-                if (shot != null && shot.timeInShot < NEW_SHOT_THRESHOLD_MS) {
-                    AppContainer.shotRepo.clearChart()
-                }
-            }
-        }
-
-        // Shot snapshots → chart data
-        viewModelScope.launch {
-            session.shotSnapshot.collect { snapshot ->
-                if (snapshot != null) {
-                    if (snapshot.timeInShot < NEW_SHOT_THRESHOLD_MS) {
-                        AppContainer.shotRepo.clearChart()
-                    }
-                    AppContainer.shotRepo.appendShotPoint(snapshot)
-                    _liveWeight.value = snapshot.weight
-                }
-            }
+            AppContainer.shotRepo.liveWeight.collect { _liveWeight.value = it }
         }
 
         // Brew state from WS
@@ -143,15 +110,13 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
             }
         }
 
-        // Errors
+        // Errors — only surface a takeover for a terminal ERROR, not during auto-reconnect.
         viewModelScope.launch {
             session.errorMessage.collect { err ->
-                if (err != null) {
-                    _error.value = if (_isConnected.value) {
-                        appString(R.string.dashboard_error_lost, err)
-                    } else {
-                        appString(R.string.dashboard_error_connect, err)
-                    }
+                if (err != null && session.connectionState.value == ConnectionState.ERROR) {
+                    _error.value = appString(R.string.dashboard_error_connect, err)
+                } else if (err == null) {
+                    _error.value = null
                 }
             }
         }
@@ -191,30 +156,24 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         // No-op — auto-connected via session
     }
 
-    fun startBrew() {
-        _error.value = "Brew start requires WebSocket command"
-    }
-
-    fun stopBrew() {
-        _error.value = "Brew stop requires WebSocket command"
-    }
-
     fun flush() {
         try {
-            session.setOpMode(com.gagmate.app.data.protocol.Commands.MODE_FLUSH)
-            _error.value = "Flush started"
+            session.setOpMode(Commands.MODE_FLUSH)
+            _message.value = "Flush started"
         } catch (_: Exception) {
             _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
         }
     }
 
     fun toggleSteam(on: Boolean) {
-        _error.value = if (on) "Steam via WS" else "Steam off"
+        // Gaggiuino v3 has no steam WebSocket command — it is driven on the machine.
+        _message.value = if (on) "Steam is controlled on the machine" else "Steam off"
     }
 
     fun tare() {
         try {
             session.tareScale()
+            _message.value = "Scale tared"
         } catch (_: Exception) {
             _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
         }
@@ -223,6 +182,7 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
     fun setSetpoint(temperature: Float) {
         try {
             session.updateActiveProfileTemperature(temperature)
+            _message.value = "Setpoint ${temperature.toInt()}\u00B0C sent"
         } catch (_: Exception) {
             _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
         }
@@ -233,12 +193,16 @@ class DashboardViewModel(application: Application) : AndroidViewModel(applicatio
         _currentWeight.value = grams
         try {
             session.updateActiveProfileWeight(grams)
+            _message.value = "Target weight ${grams.toInt()}g sent"
         } catch (_: Exception) {
             _error.value = appString(R.string.dashboard_error_connect, "WS not connected")
         }
     }
 
     fun primePump() {
-        _error.value = "Prime pump requires WebSocket"
+        // No dedicated WS command in the Gaggiuino v3 opmode set.
+        _message.value = "Prime pump: use Flush mode on the machine"
     }
+
+    fun clearMessage() { _message.value = null }
 }
