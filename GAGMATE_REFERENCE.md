@@ -1,6 +1,6 @@
 # GagMate — Gaggiuino Android Client Reference
 
-> 文档版本: 2026-07-23  
+> 文档版本: 2026-07-24  
 > 目标设备: Gaggiuino Gen3 (STM32U585, PCB v3b/v3.1)  
 > 通信协议: WebSocket (实时) + REST API (非实时)  
 > 数据编码: Custom Protobuf (WS) / JSON (REST)
@@ -90,7 +90,7 @@
 **功能**:
 - 机器状态栏 (状态指示灯 + 连接状态 + 当前 profile 名)
 - **机器读数仪表 (已置顶)**: 仅保留当前机器 **温度** 与 **压力** 两个仪表 (原置底的 蒸汽温度/泵流速仪表已移除, 因其值为硬编码 0)
-- "当前曲线" 卡片 (`ProfileGlobalsCard`): 绘制当前激活 profile 的设定曲线. 数据源: `machineRepo.fetchProfilePhases(selectedProfileId, selectedProfileName)` — **优先 WS `g_prof`→`d_prof` 实时当前定义** (`session.requestProfilePhases`), 失败回退本地库 `phasesJson`, 再回退最近 shot 内嵌 profile (仅展示). 会话 `_selectedProfileId` 来自 `d_prof_dict` 选中项.
+- "当前曲线" 卡片 (`ProfileGlobalsCard`): 绘制当前激活 profile 的设定曲线. 数据源: `machineRepo.fetchProfilePhases(selectedProfileId, selectedProfileName)` — **WS `g_prof`→`d_prof` 取实时值** (`session.requestProfilePhases`), 但 `d_prof` protobuf **不携带 curve 类型** (恒 `FLAT`), 故再用 REST `GET /api/profile/{id}`(若可用) 或最近 shot 内嵌 `profile.phases`(按 name/id 匹配) 的 **curve 字符串** 按 phase 序叠加, 使图表呈现 EASE_OUT/EASE_IN_OUT 缓动而非直线. 会话 `_selectedProfileId` 来自 `d_prof_dict` 选中项.
 - 机器控制面板:
   - 冲洗按钮 `session.setOpMode(2)` (`MODE_FLUSH`)
   - TARE 按钮 `session.tareScale()` (`c_tare_pend`)
@@ -114,7 +114,7 @@
 - 粘贴 JSON 导入 `PasteJsonDialog`
 - 创建示例曲线
 - 删除/导出曲线
-- 打开详情即通过 `fetchProfilePhases(id, name)` 取当前曲线定义 (WS `g_prof` 优先 → shot 内嵌兜底, 详见 §3.4), 用 `CurveChart` 绘制设定曲线
+- 打开详情即通过 `fetchProfilePhases(id, name)` 取当前曲线定义 (WS 实时值 + REST/shot 的 curve 类型叠加, 详见 §3.4), 用 `CurveChart` 绘制设定曲线 (含正确缓动).
 
 **Phase 数据类型**:
 - `BrewPhase` — 本地存储格式 (字段: name, type, target, time, condition, next)
@@ -170,7 +170,7 @@
 | 设置模式 | `c_opmode` | `buildOpMode(mode)` | field 1 varint = mode (2=flush, 3=descale) |
 | 取消模式 | `c_opmode` (无 payload) | `buildNormalOpMode()` | 无 (重置为 standby) |
 | TARE 归零 | `c_tare_pend` | `buildTareCommand()` | field 2 varint = 1 |
-| 请求曲线详情 | `g_prof` | `buildGetProfile(id)` | field 1 varint = profileId — **`g_prof(id)` 按请求 id 精确返回该条 profile 的当前定义**（官方 webui 即以此获取 profile 数据，已确认），故可逐条拉取**非活跃**曲线。本机固件不支持 REST `/api/profile/{id}`，故 `g_prof`→`d_prof` 是获取「当前」曲线定义的唯一权威通道 (见 `MachineSessionManager.requestProfilePhases`) |
+| 请求曲线详情 | `g_prof` | `buildGetProfile(id)` | field 1 varint = profileId — **`g_prof(id)` 按请求 id 精确返回该条 profile 的当前定义**（官方 webui 即以此获取 profile 数据，已确认），故可逐条拉取**非活跃**曲线。注意：返回的 `d_prof` protobuf **不携带 curve 类型**（解码后恒 `FLAT`），真实 curve 字符串需从 REST `/api/profile/{id}` 或 shot 内嵌 `profile.phases` 叠加 (见 `MachineSessionManager.requestProfilePhases` 与 `MachineRepository.fetchProfilePhases`) |
 | 请求设置 | `g_settings` | `buildGetSettings()` | 无 |
 | 修改温度 | (通过 `c_upd_act_prof`) | `updateProfileTemperature(payload, newTemp)` | 替换 field 4 float |
 | 修改目标重量 | (通过 `c_upd_act_prof`) | `updateProfileTargetWeight(payload, newWeight)` | 替换 field 3 → subfield 2 float |
@@ -243,7 +243,7 @@ field 3: bytes         → 设置 (maxTime, targetWeight)
 - `type` 大写 `"FLOW"` / `"PRESSURE"`; `curve` 是**字符串** (`FLAT`/`EASE_IN`/`EASE_OUT`/`EASE_IN_OUT`/`FAST_IN`/`FAST_OUT`/`FAST_IN_OUT`).
 - 首阶段 `target` 常**缺 `start`** (从 0 起); `end` 为目标值. `PhaseTarget.start` 为可空 → 缺省按 0.
 - 直接映射到 `PhaseV3` + `PhaseTarget` (字段名一致), `toBrewPhase()` 解析正确.
-- ⚠️ 本机固件**不支持**独立 `GET /api/profile/{id}` (调用必失败, 见 §4). 当前曲线「定义」唯一权威来源是 WS `g_prof`→`d_prof` (官方 webui 同方式, 已确认按 id 精确返回). `fetchProfilePhases` 取数优先级: ① WS `requestProfilePhases(id,name)` 实时当前定义 → ② 最近 shot 内嵌 profile (仅展示、不落库、历史快照). 落库由 `syncProfiles` 的 WS→Room 收集器在同步时完成.
+- REST `GET /api/profile/{id}` 在本机固件上**可能不可用**（调用可能失败）；但它与 shot 内嵌 `profile` 同构且 `curve` 为字符串。WS `g_prof`→`d_prof`（官方 webui 同方式，已确认按 id 精确返回）提供**实时值**，但 `d_prof` protobuf **不携带 curve 类型**（解码后恒 `FLAT`）。故 `fetchProfilePhases` 取数策略：① WS `requestProfilePhases(id,name)` 取实时值；② 另取 curve 来源（REST detail 若可用，否则最近 shot 内嵌 profile，按 name 或 id 匹配）；③ 两者 phase 数一致时**按序叠加 curve 类型**到 WS 值上 → 图表呈现缓动；否则回退 curve 来源。落库由 `syncProfiles` 的 WS→Room 收集器在同步时完成。
 field 4: float         → 温度设定
 field 5: string        → (空)
 field 6: varint        → 数字
@@ -264,7 +264,7 @@ JSON 格式:
 
 ### 3.4 Profile 实时取数机制 (g_prof 请求↔响应关联)
 
-本机固件不支持 REST `GET /api/profile/{id}`, 故「当前」曲线定义只能走 WS `g_prof`→`d_prof`. 但 WS 是异步的: 发 `g_prof(id)` 后, 机器在将来的某一帧才回 `d_prof`/`d_act_prof`. 为让调用方能**同步等待**结果, `MachineSessionManager` 用「按 profile name 关联的 `CompletableDeferred`」做请求/响应配对:
+WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 protobuf **不携带 curve 类型**（解码后恒 `FLAT`，见 `ProtoDecoder.decodePhaseInfo`）。真实 curve 类型（`EASE_OUT`/`EASE_IN_OUT`/…）仅存在于 REST `GET /api/profile/{id}` 与 shot 内嵌 `profile.phases` 的字符串字段，由 `fetchProfilePhases` 叠加（见 §6.3）。WS 本身是异步的：发 `g_prof(id)` 后，机器在将来的某一帧才回 `d_prof`/`d_act_prof`。为让调用方能**同步等待**结果，`MachineSessionManager` 用「按 profile name 关联的 `CompletableDeferred`」做请求/响应配对：
 
 - `pendingProfileDeferreds: MutableMap<String, CompletableDeferred<List<BrewPhase>>>` — 以 **profile name** 为 key (因为 `d_prof` 响应 protobuf 携带的是该 profile 的 name, 而非请求时的 id).
 - `requestProfilePhases(id: Int, name: String, timeoutMs = 3500): List<BrewPhase>`:
@@ -291,7 +291,7 @@ JSON 格式:
 |------|------|------|------|
 | `/api/system/status` | GET | `List<MachineState>` | 系统状态 (轮询替代已移除, 现在走 WS) |
 | `/api/profiles/all` | GET | `List<ProfileRef>` | 曲线列表 |
-| `/api/profile/{id}` | GET | `EmbeddedProfile` | 曲线详情 — **⚠️ 本机固件不支持该端点**; 当前曲线定义改走 WS `g_prof` |
+| `/api/profile/{id}` | GET | `EmbeddedProfile` | 曲线详情 — 本机固件可能不支持（调用可能失败）；若可用则提供**带 curve 字符串**的权威定义，作为 `fetchProfilePhases` 的 curve 来源之一 |
 | `/api/profile-select/{id}` | POST | Map | 激活曲线 |
 | `/api/profile-select/{id}` | DELETE | Map | 删除曲线 |
 | `/api/profile` | POST | Map | 上传曲线 |
@@ -395,11 +395,12 @@ JSON 格式:
 
 REST 调用封装:
 - `fetchMachineState()`, `fetchProfiles()`.
-- `getProfileDetail(id)` — `GET /api/profile/{id}` → `EmbeddedProfile`. **⚠️ 本机固件不支持此端点 (调用必失败), 现已无任何调用方, 仅保留作历史参考**. 当前曲线定义改走 WS `g_prof` (见 §3.4).
-- `fetchLatestShotId()`, `fetchShotDetail(id)` — shot 记录内嵌 `profile.phases` (PhaseV3 同 schema). 仅作为 `fetchProfilePhases` 的**展示兜底** (历史快照, 不落库).
+- `getProfileDetail(id)` — `GET /api/profile/{id}` → `EmbeddedProfile`. 本机固件可能不支持（调用可能失败）；若成功则提供**带 curve 字符串**的相位定义，作为 `fetchProfilePhases` 的 curve 类型来源之一（见 §3.4 / §6.3）.
+- `fetchLatestShotId()`, `fetchShotDetail(id)` — shot 记录内嵌 `profile.phases` (PhaseV3 同 schema). 作为 `fetchProfilePhases` 的 **curve 来源兜底** (按 name 或 `profile.id` 匹配, 历史快照, 不落库).
 - `fetchProfilePhases(id, name): List<BrewPhase>` — **联网实时展示取数入口** (不负责落库):
-  1. 优先 **WS `g_prof`→`d_prof` 实时当前定义** (`session.requestProfilePhases(id, name)`, 按 name 关联, 带 3.5s 超时);
-  2. 失败回退最近 shot 内嵌 profile (按 name 匹配, 仅展示).
+  1. 取 **WS `g_prof`→`d_prof` 实时值** (`session.requestProfilePhases(id, name)`, 按 name 关联, 带 3.5s 超时) — 但 curve 类型恒为 `FLAT`;
+  2. 另取 **curve 来源**: REST `getProfileDetail(id)` (若可用) 或 最近 shot 内嵌 profile (按 name 或 `id` 匹配), 二者均携带真实 curve 字符串;
+  3. 若 WS 与 curve 来源 phase 数一致 → **按序叠加 curve 类型**到 WS 值上 (图表呈现缓动); 否则回退 curve 来源; 再否则回退 WS.
   落库由 `SyncManager.syncProfiles` 的 WS→Room 收集器完成 (见 §6.7 / §6.4).
 - `uploadProfile(profile)`, `deleteMachineProfile(id)`
 - `selectMachineProfile(id)`
@@ -438,9 +439,9 @@ REST 调用封装:
 **文件**: [`SyncManager.kt`](app/src/main/java/com/gagmate/app/data/repository/SyncManager.kt)
 
 - `fullSync()` — 全量同步
-- `syncProfiles()` — 同步曲线列表：因本机固件**不支持 REST `GET /api/profile/{id}`**，改为在同步时为每台机器 profile 发 **WS `g_prof`**，由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`。这是 profile 详情 / 仪表盘激活曲线**离线可绘制**的权威「当前」定义来源。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
+- `syncProfiles()` — 同步曲线列表：在同步时为每台机器 profile 发 **WS `g_prof`**，由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`。这是 profile 详情 / 仪表盘激活曲线**离线可绘制**的权威「当前」定义来源（值）。⚠️ 因 WS `d_prof` **不携带 curve 类型**，离线 `phasesJson` 中 curve 恒为 `FLAT`；联网时由 `fetchProfilePhases` 叠加 REST/shot 的真实 curve 以呈现缓动。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
 - `syncShots()` — 仅同步萃取记录 (REST → 本地 DB)。**shot 是萃取历史快照，不作为 profile 离线数据来源。**
-- 注意：`MachineRepository.fetchProfilePhases()` 仅用于**联网时的实时展示**（WS `g_prof` 当前定义 → shot 内嵌兜底），不再负责落库；落库以 `syncProfiles` 的 WS g_prof 为准。
+- 注意：`MachineRepository.fetchProfilePhases()` 仅用于**联网时的实时展示**，并负责把 WS 的 `FLAT` curve 叠加为 REST/shot 的真实 curve 类型（按 phase 序）；落库以 `syncProfiles` 的 WS g_prof 为准（离线 `phasesJson` 的 curve 为 `FLAT`）。
 
 ### 6.8 SettingsRepository
 

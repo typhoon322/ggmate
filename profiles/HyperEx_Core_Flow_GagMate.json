@@ -1,0 +1,57 @@
+{
+  "name": "HyperEx (Core) — 手冲浅超萃",
+  "author": "HyperEx / GagMate",
+  "notes": "美式超萃曲线：23g 粉，目标 80-95g 液，粗意式-摩卡壶研磨，流量 3-4g/s，总时长约 30s。采用 FLOW 模式，压力由粉饼阻力自然产生（预计 5-8 bar）。建议水温 94°C，可根据豆子微调。",
+  "phases": [
+    {
+      "name": "Preinfusion",
+      "type": "flow",
+      "target": 2.0,
+      "start": 2.0,
+      "variation": "LINEAR",
+      "time": 6,
+      "condition": "time",
+      "nextPhase": "Ramp Up"
+    },
+    {
+      "name": "Ramp Up",
+      "type": "flow",
+      "target": 3.5,
+      "start": 2.0,
+      "variation": "EASE_IN_OUT",
+      "time": 3,
+      "condition": "time",
+      "nextPhase": "Main Extraction"
+    },
+    {
+      "name": "Main Extraction",
+      "type": "flow",
+      "target": 3.5,
+      "start": 3.5,
+      "variation": "LINEAR",
+      "time": 18,
+      "condition": "time",
+      "nextPhase": "Taper Down"
+    },
+    {
+      "name": "Taper Down",
+      "type": "flow",
+      "target": 2.5,
+      "start": 3.5,
+      "variation": "EASE_OUT",
+      "time": 4,
+      "condition": "time",
+      "nextPhase": "Stop"
+    },
+    {
+      "name": "Stop",
+      "type": "flow",
+      "target": 0.0,
+      "start": 0.0,
+      "variation": "LINEAR",
+      "time": 1,
+      "condition": "time",
+      "nextPhase": ""
+    }
+  ]
+}

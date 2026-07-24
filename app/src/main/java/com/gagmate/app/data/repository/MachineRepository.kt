@@ -89,37 +89,69 @@ class MachineRepository {
     }
 
     /**
-     * Resolve the phase list for a profile for LIVE display, tolerating
-     * firmwares that do not expose `GET /api/profile/{id}`.
+     * Resolve the phase list for a profile for LIVE display.
+     *
+     * The Gaggiuino WebSocket `d_prof`/`d_act_prof` payload does NOT carry the
+     * per-phase *curve type* (EASE_OUT / EASE_IN_OUT / …): [ProtoDecoder]
+     * can only read it as a numeric enum, which the firmware sends as 0, so all
+     * WS phases collapse to `variation = "FLAT"` and the chart draws straight
+     * lines. The genuine curve type lives **only as a string** in:
+     *   1. REST `GET /api/profile/{id}` → `EmbeddedProfile` (`PhaseV3.toBrewPhase`
+     *      maps `target.curve` → `variation`, uppercased). May be unsupported on
+     *      some firmware; treated as best-effort.
+     *   2. The most recent shot's *embedded* profile (`GET /api/shots/{id}` →
+     *      `profile.phases`), matched by name or profile id — proven in logs to
+     *      carry the real curve strings (e.g. EASE_OUT, EASE_IN_OUT).
      *
      * Strategy (live display only — persistence happens via the WS→Room
      * collector in [com.gagmate.app.data.repository.ProfileRepository]):
-     *  1. LIVE WebSocket current definition: `g_prof` → `d_prof` (preferred,
-     *     this is the authoritative "now" recipe on REST-less firmwares).
-     *  2. Last-resort for viewing only: the most recent shot's *embedded*
-     *     profile (`GET /api/shots/{id}` → `profile.phases`), matched by name.
-     *     This is a HISTORICAL snapshot — never persisted, since changing the
-     *     recipe on the machine would make it stale.
+     *   1. Fetch live phases from WS `g_prof` (authoritative current values).
+     *   2. Independently resolve a *curve-type source* (REST detail, else
+     *      shot-embedded). When both exist with matching phase counts, overlay
+     *      the real curve types onto the live WS values so the chart renders
+     *      eased transitions. Otherwise fall back to the curve source, then WS.
      *
-     * Returns an empty list only if both sources are unavailable.
+     * Returns an empty list only if every source is unavailable.
      */
     suspend fun fetchProfilePhases(id: String?, name: String): List<BrewPhase> {
-        // 1) LIVE WebSocket current definition (preferred).
         val intId = id?.toIntOrNull()
-        if (intId != null && name.isNotBlank()) {
-            try {
-                val ws = AppContainer.machineSession.requestProfilePhases(intId, name, 3500)
-                if (ws.isNotEmpty()) return ws
-            } catch (_: Exception) { }
-        }
-        // 2) Fallback: latest shot's embedded profile, matched by name (view only).
-        runCatching {
+
+        // (A) Curve-type source — carries genuine EASE_* strings.
+        val restPhases: List<BrewPhase>? = if (intId != null) {
+            getProfileDetail(intId.toString()).getOrNull()
+                ?.takeIf { it.phases.isNotEmpty() }
+                ?.let { it.phases.map { p -> p.toBrewPhase() } }
+        } else null
+        val shotPhases: List<BrewPhase>? = runCatching {
             val latestId = getLatestShotId().getOrNull() ?: return@runCatching null
             val shot = getShotDetail(latestId).getOrNull() ?: return@runCatching null
-            shot.profile?.takeIf { it.name == name }?.phases?.takeIf { it.isNotEmpty() }
+            shot.profile
+                ?.takeIf { it.name == name || it.id == intId }
+                ?.phases?.takeIf { it.isNotEmpty() }
                 ?.map { it.toBrewPhase() }
-        }.getOrNull()?.let { return it }
-        return emptyList()
+        }.getOrNull()
+        val curveSource: List<BrewPhase>? = restPhases ?: shotPhases
+
+        // (B) Live WS definition — authoritative values, but curve type is FLAT.
+        val wsPhases: List<BrewPhase>? = if (intId != null && name.isNotBlank()) {
+            try {
+                AppContainer.machineSession.requestProfilePhases(intId, name, 3500)
+                    .takeIf { it.isNotEmpty() }
+            } catch (_: Exception) { null }
+        } else null
+
+        return when {
+            // Merge: keep live WS values, overlay real curve types by phase index.
+            wsPhases != null && curveSource != null && curveSource.size == wsPhases.size -> {
+                wsPhases.mapIndexed { i, wp ->
+                    val cv = curveSource[i].variation
+                    if (cv.isNotBlank() && cv != "FLAT" && cv != "LINEAR") wp.copy(variation = cv) else wp
+                }
+            }
+            curveSource != null -> curveSource
+            wsPhases != null -> wsPhases
+            else -> emptyList()
+        }
     }
 
     fun updateConnection(host: String, port: Int = 80) {

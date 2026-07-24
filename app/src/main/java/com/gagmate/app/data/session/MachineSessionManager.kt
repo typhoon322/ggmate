@@ -381,9 +381,23 @@ is SystemStateMsg -> {
             if (msg.phases.isNotEmpty()) {
                 _selectedProfilePhases.value = msg.phases
                 _profileDataReceived.tryEmit(msg.name to msg.phases)
-                // Complete any pending synchronous request for this profile name.
+                // Complete any pending synchronous request. Match by exact name;
+                // if the profile name could not be extracted (msg.name == "unknown")
+                // but there is exactly one outstanding request, complete it — this
+                // covers the common single-detail-page case so a g_prof reply is
+                // not silently dropped (and the caller does not time out empty)
+                // when the firmware's d_prof name field is missing/blank.
                 synchronized(pendingProfileDeferreds) {
-                    pendingProfileDeferreds.remove(msg.name)?.let { it.complete(msg.phases) }
+                    val exact = pendingProfileDeferreds.remove(msg.name)
+                    if (exact != null) {
+                        exact.complete(msg.phases)
+                    } else if (pendingProfileDeferreds.size == 1) {
+                        pendingProfileDeferreds.values.first().also {
+                            pendingProfileDeferreds.clear()
+                            it.complete(msg.phases)
+                        }
+                    }
+                    Unit
                 }
             } else if (BuildConfig.DEBUG) {
                 Log.w("GagMateProfile", "WS d_prof/d_act_prof name='${msg.name}' had 0 phases — parse may have failed")

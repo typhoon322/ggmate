@@ -266,6 +266,12 @@ private fun curveEnumToString(ordinal: Int): String = when (ordinal) {
     else -> "FLAT"
 }
 
+/** Normalize a curve name carried as a protobuf string field into our enum name. */
+private fun normalizeCurveName(data: ByteArray, offset: Int, len: Int): String {
+    val s = data.copyOfRange(offset, (offset + len).coerceAtMost(data.size)).decodeToString().trim().uppercase()
+    return if (s.isBlank()) "LINEAR" else s
+}
+
 private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
     var offset = 0
     var name = ""; var type = "pressure"
@@ -289,6 +295,7 @@ private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
                         tfn == 1 && twt == 5 -> { if (offset + 4 <= limit) start = readFloatLE(data, offset); offset += 4 }
                         tfn == 2 && twt == 5 -> { if (offset + 4 <= limit) end = readFloatLE(data, offset); offset += 4 }
                         tfn == 3 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; variation = curveEnumToString(v.toInt()) }
+                        tfn == 3 && twt == 2 -> { val (len, tp2) = readVarint(data, offset); offset = tp2; variation = normalizeCurveName(data, offset, len.toInt()); offset += len.toInt() }
                         tfn == 4 && twt == 0 -> { val (v, tp2) = readVarint(data, offset); offset = tp2; timeMs = v.toInt() }
                         twt == 0 -> { val (_, tp2) = readVarint(data, offset); offset = tp2 }
                         twt == 2 -> { val (l, tp2) = readVarint(data, offset); offset = tp2 + l.toInt() }

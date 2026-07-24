@@ -1,4 +1,4 @@
-# GagMate — 架构梳理与问题清单（2026-07-23 更新版）
+# GagMate — 架构梳理与问题清单（2026-07-24 更新版）
 
 > **状态说明**：本文档是对 `app/src/main/**`（54 个 Kotlin 文件，约 7,000 LOC）的重新梳理。
 > 早先（03:06）的初版 Code Review 报了一个「启动即崩溃」的致命 bug，但**过去 24 小时内代码已被修改**，
@@ -127,7 +127,7 @@
 - **根因**：`ProfileGlobalsCard` 用 WS `_selectedProfilePhases`，而该流在本固件下为空/不可赖。
 - **修复**：`DashboardScreen` 在 `selectedProfileId` / `selectedProfileName` 变化时调用 `fetchProfilePhases(id, name)`（REST detail → 回退 shot 内嵌 profile，按名匹配），优先用其结果绘制；仍失败再回退 WS 流。`AppContainer` 暴露 `machineRepo`。
 
-> 注：②/④ 在 §0d 中采用的「REST `GET /api/profile/{id}` 优先」策略**经用户确认在本机固件上并不成立**——该端点实际不支持。以下 §0e 为最终落地方案。
+> 注：②/④ 在 §0d 中曾尝试「REST `GET /api/profile/{id}` 优先」，但该端点在本机固件上**未必可用**（调用可能失败）；即便如此，真实 curve 类型也可从 shot 内嵌 `profile.phases` 取得。§0e 改走纯 WS `g_prof`，但 WS `d_prof` 亦不携带 curve 类型（恒 `FLAT`）。最终落地方案见 **§0f**：「WS 取实时值 + REST/shot 叠加 curve 类型」。
 
 ---
 
@@ -148,6 +148,26 @@
 ### 已知固件风险
 - ~~`g_prof` 是否按请求 id 精确返回该 profile~~ **已确认**：`g_prof(id)` 按请求 id 精确返回该条 profile 的当前定义（官方 webui 即以此获取 profile 数据）。因此同步时逐条 `g_prof(id)` 可正确回填**每条**非活跃曲线，离线/无 WS 时也能绘制；`requestProfilePhases(id,name)` 的 name 关联亦可靠。
 - 验证：`SyncManager` 日志 `fullSync: ADDED profile ... (phases filled via WS g_prof)` 表示已建行；WS→Room 日志 `WROTE phasesJson (N B) for name='X'` 表示已落库（N>2 即有效）。
+
+---
+
+## 0f. 本轮改动（2026-07-24：曲线全直线 + 详情仍无数据 → WS 不携带 curve 类型）
+
+用户附 `gagmate_combined(4).log`（REST-only）复核数据契约，反馈两点：**① profile 详情仍无数据、无曲线；② 仪表盘"当前曲线"画出了，但全为直线，未按 EASE_IN_OUT 等缓动**。全部通过 `./gradlew :app:assembleDebug --offline` 编译验证。
+
+### 根因
+- `ProtoDecoder.decodePhaseInfo` 读取 curve 为 varint 枚举，固件一律发 0 → `curveEnumToString` 映射为 `"FLAT"`；WS `d_prof`/`d_act_prof` protobuf **根本不携带 curve 类型**。故 WS 相位 curve 恒为 `FLAT` → `CurveChart` 画直线。
+- 真实 curve 字符串（`EASE_OUT`/`EASE_IN_OUT`/…）仅存在于 REST `GET /api/profile/{id}` 与 shot 内嵌 `profile.phases`（日志已核对）。旧 `fetchProfilePhases` 优先返回 WS 值 → 直线；且 WS `d_prof` 的 name 提取失败时 `CompletableDeferred` 超时 → 详情取空。
+
+### 修复
+- **`MachineRepository.fetchProfilePhases` 重构为「WS 实时值 + 叠加 curve 来源」**：
+  1. WS `requestProfilePhases(id,name)` 取实时值（curve 恒 `FLAT`）；
+  2. 另取 curve 来源：REST `getProfileDetail(id)`（若可用）或 最近 shot 内嵌 profile（按 **name 或 `profile.id`** 匹配），二者均含真实 curve 字符串；
+  3. 若 WS 与 curve 来源 phase 数一致 → **按序 overlay curve 类型**到 WS 值上（`wp.copy(variation = cv)`）→ 缓动曲线；否则回退 curve 来源；再否则回退 WS。
+- **`MachineSessionManager` WS `d_prof` 处理容错 name 匹配**：exact name 优先；若 exact 缺失但仅 1 个 pending deferred（详情页单请求场景，固件 `d_prof` name 缺失/blank）→ 完成它，避免超时取空。
+- **`ProtoDecoder.decodePhaseInfo`** 增加字符串 curve 分支（`twt==2`）+ `normalizeCurveName`（防御：若固件未来以字符串携带 curve）。
+- **`ProtoMessage.ActiveProfileMsg`** 增加 `isActiveProfile` 标志（区分 `d_prof` 与 `d_act_prof`）。
+- ⚠️ 离线落库的 `phasesJson`（来自 WS `g_prof`）curve 仍为 `FLAT`；联网时由 `fetchProfilePhases` 叠加真实 curve。历史 shot 内嵌 profile 的 curve 为真实字符串，是离线场景外缓动曲线的可靠来源。
 
 ---
 

@@ -1,0 +1,37 @@
+{
+  "name": "HyperEx (Core) 23g 90g Pour-Over Light",
+  "author": "GagMate",
+  "notes": "HyperEx Core 手冲浅（美式）超萃。23g 粉 / 90g 液（70-100g 区间），粗意式-摩卡壶研磨，流量 3-4 g/s，压力 5-9 bar，目标 25-35s。原生 Gaggiuino v3 曲线见 HyperEx_Core_GaggiuinoV3.json。",
+  "phases": [
+    {
+      "name": "Preinfusion",
+      "type": "flow",
+      "target": 1.5,
+      "start": 0.0,
+      "variation": "EASE_OUT",
+      "time": 6,
+      "condition": "time",
+      "nextPhase": "High Flow Extraction"
+    },
+    {
+      "name": "High Flow Extraction",
+      "type": "flow",
+      "target": 4.0,
+      "start": 1.5,
+      "variation": "EASE_IN_OUT",
+      "time": 15,
+      "condition": "time",
+      "nextPhase": "Sweet Finish"
+    },
+    {
+      "name": "Sweet Finish",
+      "type": "pressure",
+      "target": 4.0,
+      "start": 6.0,
+      "variation": "EASE_IN_OUT",
+      "time": 8,
+      "condition": "time",
+      "nextPhase": ""
+    }
+  ]
+}

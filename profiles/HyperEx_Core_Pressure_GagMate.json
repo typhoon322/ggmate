@@ -1,0 +1,57 @@
+{
+  "name": "HyperEx (Core) — 手冲浅超萃 (Pressure)",
+  "author": "HyperEx / GagMate",
+  "notes": "美式超萃曲线（压力版）：23g 粉，目标 80-95g 液，粗意式-摩卡壶研磨，5-9 bar，总时长约 31s。采用 PRESSURE 模式，流量由压力与研磨共同决定（预计 3-4g/s）。建议水温 94°C。",
+  "phases": [
+    {
+      "name": "Preinfusion",
+      "type": "pressure",
+      "target": 2.0,
+      "start": 2.0,
+      "variation": "LINEAR",
+      "time": 5,
+      "condition": "time",
+      "nextPhase": "Ramp Up"
+    },
+    {
+      "name": "Ramp Up",
+      "type": "pressure",
+      "target": 7.0,
+      "start": 2.0,
+      "variation": "EASE_IN_OUT",
+      "time": 4,
+      "condition": "time",
+      "nextPhase": "Main Extraction"
+    },
+    {
+      "name": "Main Extraction",
+      "type": "pressure",
+      "target": 7.0,
+      "start": 7.0,
+      "variation": "LINEAR",
+      "time": 18,
+      "condition": "time",
+      "nextPhase": "Taper Down"
+    },
+    {
+      "name": "Taper Down",
+      "type": "pressure",
+      "target": 5.0,
+      "start": 7.0,
+      "variation": "EASE_OUT",
+      "time": 4,
+      "condition": "time",
+      "nextPhase": "Stop"
+    },
+    {
+      "name": "Stop",
+      "type": "pressure",
+      "target": 0.0,
+      "start": 0.0,
+      "variation": "LINEAR",
+      "time": 1,
+      "condition": "time",
+      "nextPhase": ""
+    }
+  ]
+}

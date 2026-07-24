@@ -12,7 +12,12 @@ class SensorSnapshotMsg(val value: SensorSnapshot) : ProtoMessage()
 class ShotSnapshotMsg(val value: ShotSnapshot) : ProtoMessage()
 class ProfileDictMsg(val profiles: List<ProfileRef>) : ProtoMessage()
 class ShotHistoryIndexMsg(val entries: List<ShotIndexEntry>) : ProtoMessage()
-class ActiveProfileMsg(val name: String, val phases: List<com.gagmate.app.data.model.BrewPhase> = emptyList(), val rawPayload: ByteArray = byteArrayOf()) : ProtoMessage()
+class ActiveProfileMsg(
+    val name: String,
+    val phases: List<com.gagmate.app.data.model.BrewPhase> = emptyList(),
+    val rawPayload: ByteArray = byteArrayOf(),
+    val isActiveProfile: Boolean = false
+) : ProtoMessage()
 class SettingsMsg(val values: Map<String, String>) : ProtoMessage()
 class UnknownMsg(val command: String, val payloadSize: Int) : ProtoMessage()
 
@@ -31,7 +36,7 @@ fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd
         val phases = parseProfilePhases(payload)
         if (BuildConfig.DEBUG)
             Log.d("GagMateProfile", "parseProto(${cmd}): name='$name' phases=${phases.size} payload=${payload.size}B")
-        ActiveProfileMsg(name, phases, payload)
+        ActiveProfileMsg(name, phases, payload, cmd == Commands.ACTIVE_PROFILE)
     }
     Commands.SETTINGS -> SettingsMsg(parseSettings(payload))
     else -> {
