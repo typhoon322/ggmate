@@ -1,7 +1,5 @@
 package com.gagmate.app.ui.components
 
-import androidx.activity.ComponentActivity
-import android.content.pm.ActivityInfo
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -19,7 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
@@ -60,13 +57,6 @@ fun ShotChartFullScreen(
 ) {
     val shot by produceShot(shotId)
     val dataPoints = remember(shot) { shot?.toShotRecord()?.data ?: emptyList() }
-
-    val context = LocalContext.current
-    DisposableEffect(Unit) {
-        val activity = context as? ComponentActivity
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
-    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0.dp)

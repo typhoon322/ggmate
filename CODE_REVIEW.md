@@ -192,6 +192,21 @@
 
 ---
 
+## 0h. 本轮改动（2026-07-28：除全屏曲线页外，全部页面强制竖屏、禁止自动旋转）
+
+用户要求：除了全屏曲线图表展示页，其它页面强制竖屏、禁止自动切换。
+
+### 根因
+- 原先 `LiveCurveScreen` / `ShotChartFullScreen` 各自在 `DisposableEffect(Unit)` 里「进入设 LANDSCAPE / 退出设 UNSPECIFIED」，`ProfileDetailScreen` 则是「进入设 PORTRAIT / 退出设 UNSPECIFIED」。问题在于**退出时回到 `UNSPECIFIED`**——意味着非图表页会重新跟随设备传感器，一旦手机横放就自动旋转，并未真正锁竖屏。
+
+### 修复
+- **集中式方向控制**：在 `AppNavigation` 内以 `currentRoute` 为键的 `DisposableEffect` 统一设定方向——非图表页一律 `SCREEN_ORIENTATION_PORTRAIT`，仅 `livecurve` 与 `history_chart/*` 两个全屏图表目的地用 `SCREEN_ORIENTATION_LANDSCAPE`。以路由为单一真相源，chart→chart 保持横屏、chart→其它页回竖屏，无「退出重置再进入」竞态。
+- **Manifest 兜底**：`AndroidManifest.xml` 的 `MainActivity` 增加 `android:screenOrientation="portrait"`，保证首帧与任何未覆盖状态都默认竖屏（运行时图表设置 LANDSCAPE 会覆盖它）。
+- **删除各页面各自的方向逻辑**：`LiveCurveScreen` / `ShotChartFullScreen` / `ProfileDetailScreen` 中的 `requestedOrientation` 代码块及相关 import（`ActivityInfo` / `LocalContext` / `ComponentActivity`）全部移除，避免重复与互相干扰。
+- 全部通过 `./gradlew :app:assembleDebug --offline` 编译验证（BUILD SUCCESSFUL）。
+
+---
+
 ## 1. 项目架构（整理）
 
 ### 1.1 分层结构

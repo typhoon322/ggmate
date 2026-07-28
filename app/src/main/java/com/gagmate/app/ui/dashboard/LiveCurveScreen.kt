@@ -1,6 +1,5 @@
 package com.gagmate.app.ui.dashboard
 
-import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,13 +11,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.content.pm.ActivityInfo
 import com.gagmate.app.R
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.ui.components.BrewChartView
@@ -35,13 +32,6 @@ fun LiveCurveScreen(
 ) {
     val chartData by AppContainer.shotRepo.chartData.collectAsState()
     val isBrewing by AppContainer.machineSession.brewActive.collectAsState()
-
-    val context = LocalContext.current
-    DisposableEffect(Unit) {
-        val activity = context as? ComponentActivity
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        onDispose { activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED }
-    }
 
     val last = chartData.lastOrNull()
 

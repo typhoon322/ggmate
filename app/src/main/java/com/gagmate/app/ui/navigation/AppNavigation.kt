@@ -17,6 +17,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -63,6 +66,21 @@ fun AppNavigation() {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val activity = LocalContext.current as? Activity
+
+    // Centralized screen orientation. Every destination is locked to PORTRAIT so
+    // non-chart pages never auto-rotate. The two full-screen chart destinations
+    // (live curve / history chart) switch to LANDSCAPE. Keyed on currentRoute so
+    // there is a single source of truth — navigating chart→chart stays landscape,
+    // chart→any-other-page returns to portrait, with no revert race.
+    DisposableEffect(currentRoute) {
+        val isFullScreenChart = currentRoute == Screen.LiveCurve.route ||
+            (currentRoute != null && currentRoute.startsWith("history_chart"))
+        activity?.requestedOrientation =
+            if (isFullScreenChart) ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            else ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        onDispose { }
+    }
 
     // Auto-jump to the live curve screen when a brew starts on the machine
     // (the machine's brew switch is the only thing that can start a shot).

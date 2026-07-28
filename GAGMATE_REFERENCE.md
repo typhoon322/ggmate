@@ -82,6 +82,13 @@
 | 萃取历史 | `history` | `ShotHistoryScreen` | `ShotHistoryViewModel` |
 | 设置 | `settings` | `SettingsScreen` | `SettingsViewModel` |
 
+### 2.0 屏幕方向（强制竖屏 / 仅全屏图表横屏）
+
+- **默认全部页面强制竖屏、禁止自动旋转**：由 `AndroidManifest.xml` 中 `MainActivity` 的 `android:screenOrientation="portrait"` 与 `AppNavigation` 中的**集中式** `DisposableEffect(currentRoute)` 双重锁定（取当前路由，非图表页一律 `SCREEN_ORIENTATION_PORTRAIT`）。这样非图表页绝不会跟随设备传感器自动横竖切换。
+- **唯一例外**：两个全屏图表目的地——实时曲线 `livecurve`（`LiveCurveScreen`）与萃取历史横屏图表 `history_chart/{shotId}`（`ShotChartFullScreen`）——切换为 `SCREEN_ORIENTATION_LANDSCAPE`，以获得横向宽幅绘图空间。
+- 方向控制**已集中到 `AppNavigation`**，各页面不再各自 `requestedOrientation`：`LiveCurveScreen` / `ShotChartFullScreen` / `ProfileDetailScreen` 原有的「进入设方向、退出设 UNSPECIFIED」逻辑已全部移除（旧逻辑在退出时回到 `UNSPECIFIED` 会导致非图表页重新跟随传感器自动旋转，正是此前「其他页面不锁竖屏」的根因）。
+- 以 `currentRoute` 为键（而非各页面 `DisposableEffect(Unit)`），保证 chart→chart 跳转保持横屏、chart→任何其它页回到竖屏，且无「退出重置再进入」竞态。
+
 ### 2.1 仪表盘 — DashboardScreen
 
 **文件**: [`DashboardScreen.kt`](app/src/main/java/com/gagmate/app/ui/dashboard/DashboardScreen.kt)  
