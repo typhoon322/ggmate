@@ -1,4 +1,4 @@
-# GagMate — 架构梳理与问题清单（2026-07-24 更新版）
+# GagMate — 架构梳理与问题清单（2026-07-28 更新版）
 
 > **状态说明**：本文档是对 `app/src/main/**`（54 个 Kotlin 文件，约 7,000 LOC）的重新梳理。
 > 早先（03:06）的初版 Code Review 报了一个「启动即崩溃」的致命 bug，但**过去 24 小时内代码已被修改**，
@@ -142,7 +142,7 @@
 - **详情页**：删除了「发 `g_prof` 后 `delay(8000)` 却不消费响应」的死代码（旧 `hasNoPhases` 分支），改为直接走 `fetchProfilePhases`（WS 实时）并统一在取数后收尾 `loadingPhases=false`。
 
 ### 撤掉的方案
-- **REST 详情落库（§0d 尝试）**：`syncProfiles` 内对每条 profile 调 `getProfileDetail(id)` 落库 —— 因端点不支持，必然取空，已撤。
+- **REST 详情落库（§0d 尝试，本版重新启用）**：`syncProfiles` 内对每条 `SYNCED` profile 调 `getProfileDetail(id)` 落库其真实 `EASE_*` curve 相位（best-effort：仅当连接可用且该 profile 尚未含真实 curve 时取）。**之前的「端点不支持、必然取空、已撤」结论被推翻**——后续真实机器日志（`gagmate_combined(5).log`）显示该端点可用且返回带 curve 字符串的完整定义，因此重新启用为离线缓动曲线的主要来源。
 - **shot 内嵌回填落库（更早尝试）**：把 shot 内嵌 `profile.phases` 按 name 回写本地库 —— 用户指出 shot 是历史快照，改配方后失效，已撤。
 
 ### 已知固件风险
@@ -167,7 +167,28 @@
 - **`MachineSessionManager` WS `d_prof` 处理容错 name 匹配**：exact name 优先；若 exact 缺失但仅 1 个 pending deferred（详情页单请求场景，固件 `d_prof` name 缺失/blank）→ 完成它，避免超时取空。
 - **`ProtoDecoder.decodePhaseInfo`** 增加字符串 curve 分支（`twt==2`）+ `normalizeCurveName`（防御：若固件未来以字符串携带 curve）。
 - **`ProtoMessage.ActiveProfileMsg`** 增加 `isActiveProfile` 标志（区分 `d_prof` 与 `d_act_prof`）。
-- ⚠️ 离线落库的 `phasesJson`（来自 WS `g_prof`）curve 仍为 `FLAT`；联网时由 `fetchProfilePhases` 叠加真实 curve。历史 shot 内嵌 profile 的 curve 为真实字符串，是离线场景外缓动曲线的可靠来源。
+- ✅ 离线 `phasesJson` 现在由 `syncProfiles` 的 REST 取数写入**真实 `EASE_*` curve**（见 §0g），因此离线打开详情/图表也能呈现缓动曲线，不再依赖联网叠加。`fetchProfilePhases` 仍作为联网时的实时增强（WS 实时值 + REST/shot curve 叠加）。WS→Room 收集器写入时**沿用 `phasesJson` 已有真实 curve 类型**，避免后续 FLAT 的 `d_prof` 把缓动擦掉。
+
+---
+
+## 0g. 本轮改动（2026-07-28：profile 详情仍「无数据 + 无曲线」→ `phasesJson` 从未被真实填充）
+
+用户附 `gagmate_combined(5).log` 反馈：**profile 详情打开后依旧没有数据、也没有曲线**（联网时仪表盘当前曲线已能按 EASE_* 缓动，但详情页始终空白）。全部通过 `./gradlew :app:assembleDebug --offline` 编译验证。
+
+### 根因
+- 详情页 `ProfileDetailScreen` 的取数顺序：`fetchedPhases`（联网实时，`fetchProfilePhases`）→ 回退 `phasesList`（本地库 `phasesJson`）。当打开详情时**机器刚好断连**（日志中 `GET /api/profile/{id}`、`api/shots/latest` 全部 `Failed to connect to /192.168.0.186:80`），`fetchProfilePhases` 三路来源全失败 → 空；而本地 `phasesJson` 仍是 `"[]"`。
+- `phasesJson` 之所以为空：旧 `syncProfiles` 只把它初始化为 `"[]"`，并把「填充相位」完全寄托于 WS `d_prof` 收集器——但该收集器依赖同步时 WS 连接且 `d_prof` name 能匹配本地（否则 `NO local profile matched` 被丢弃），在本固件下极不稳定，绝大多数 profile 的 `phasesJson` 根本没被写进过真实相位。
+- 即便 `phasesJson` 被 WS 填充，其 curve 也恒为 `FLAT`（WS 不携带 curve 类型），所以「有数据但直线」与「无数据」并存。
+
+### 修复
+- **`SyncManager.syncProfiles` 重新启用 REST 取数落库**：同步时，对每条 `SYNCED` profile，在连接可用且该 profile 尚未含真实 curve（`variation` 非 `FLAT`/`LINEAR`）时，调用 `machineRepo.getProfileDetail(mId)`，把真实 `EASE_*` 相位写回 `ProfileEntity.phasesJson`。此操作 best-effort（失败不影响同步、不覆盖本地已编辑）。这样**即使之后机器断连，详情页也能从本地库读到带缓动的真实曲线**。
+- **`ProfileRepository` WS→Room 收集器保留已有 curve**：写入 `d_prof`/`d_act_prof` 相位时，若本地 `phasesJson` 同序相位已含真实 curve，则沿用其 `variation`（不覆盖为 FLAT），避免后续 FLAT 的 WS 更新把缓动擦掉。
+- **`ProfileDetailScreen` 优先本地真实曲线**：`chartPhases` 选择逻辑改为——联网取到真实 curve 用实时值；否则优先本地 `phasesList`（现含真实 curve）；最后才回退 FLAT 实时值，确保「至少有数据」。
+
+### 验证（让用户复测）
+- 连上机器做一次**全量同步**（下拉刷新 profiles）；日志应出现 `fullSync: stored REST detail phases (N) for id=…`。
+- 此后**断网**打开任意 profile 详情：应显示相位数据 + 按 `EASE_*` 缓动的曲线（来自本地库）。
+- 联网打开详情：实时值 + 真实 curve 叠加，同样缓动。
 
 ---
 

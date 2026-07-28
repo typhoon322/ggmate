@@ -55,13 +55,31 @@ class ProfileRepository(
                             if (BuildConfig.DEBUG)
                                 Log.w("GagMateProfile", "WS→Room: dropped all-zero phases for name='$name' (would clobber REST data)")
                         } else {
+                            // The WS d_prof stream only carries FLAT curve types
+                            // (real EASE_* curves live in REST detail / synced
+                            // phasesJson). Preserve any existing real curve types
+                            // from the stored phasesJson so a later FLAT WS update
+                            // does not wipe the eased curve the detail chart needs.
+                            val existingPhases = runCatching {
+                                gson.fromJson<List<BrewPhase>>(
+                                    match.phasesJson, object : TypeToken<List<BrewPhase>>() {}.type
+                                )
+                            }.getOrDefault(emptyList())
+                            val merged = if (existingPhases.size == phases.size) {
+                                phases.mapIndexed { i, wp ->
+                                    val ev = existingPhases[i].variation
+                                    if (ev.isNotBlank() && ev != "FLAT" && ev != "LINEAR") {
+                                        wp.copy(variation = ev)
+                                    } else wp
+                                }
+                            } else phases
                             val updated = match.copy(
-                                phasesJson = gson.toJson(phases),
+                                phasesJson = gson.toJson(merged),
                                 localUpdatedAt = System.currentTimeMillis()
                             )
                             localRepo.saveProfile(updated)
                             if (BuildConfig.DEBUG)
-                                Log.d("GagMateProfile", "WS→Room: WROTE phasesJson (${updated.phasesJson.length}B) for name='$name'")
+                                Log.d("GagMateProfile", "WS→Room: WROTE phasesJson (${updated.phasesJson.length}B) for name='$name' (curves preserved)")
                         }
                     } else if (BuildConfig.DEBUG) {
                         Log.w("GagMateProfile", "WS→Room: NO local profile matched name='$name' — phases dropped")

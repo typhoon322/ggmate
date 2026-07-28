@@ -140,9 +140,14 @@ private fun ProfileDetailContent(
         loadingPhases = false
     }
 
-    // Chart reads from the live editing copy while editing, otherwise from the
-    // REST-fetched phases (falling back to the DB phases).
-    val chartPhases = if (isEditing) editedPhases else (fetchedPhases.takeIf { it.isNotEmpty() } ?: phasesList)
+    // Chart reads from the live editing copy while editing. Otherwise prefer
+    // the local DB phases (phasesList) when the live fetch is FLAT, because the
+    // synced DB now holds the real EASE_* curve types; only fall back to the
+    // live WS phases (even if FLAT) as a last resort so data still shows.
+    val liveHasRealCurve = fetchedPhases.any { it.variation != "FLAT" && it.variation != "LINEAR" }
+    val chartPhases = if (isEditing) editedPhases
+    else if (fetchedPhases.isNotEmpty() && liveHasRealCurve) fetchedPhases
+    else (phasesList ?: fetchedPhases)
 
     fun discardEdits() {
         editedName = profile.name

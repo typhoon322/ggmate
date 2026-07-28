@@ -7,9 +7,11 @@ import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.local.entity.MachineSettingsEntity
+import com.gagmate.app.data.model.BrewPhase
 import com.gagmate.app.data.model.ShotRecord
 import com.gagmate.app.data.model.toBrewPhase
 import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.*
 
 /**
@@ -119,18 +121,16 @@ class SyncManager(
             val mId = mp.id.toString()
             val local = localProfiles[mId]
 
-            // This firmware does NOT expose REST `GET /api/profile/{id}`, so the
-            // CURRENT profile definition can only be fetched over WebSocket via
-            // `g_prof`. Fire the request here; the ProfileRepository WS→Room
-            // collector persists the `d_prof`/`d_act_prof` response (by profile
-            // name) into phasesJson asynchronously — this is what makes the
-            // profile chart viewable offline with the authoritative, present recipe.
+            // Fire the WebSocket g_prof request too — the WS→Room collector
+            // persists the d_prof/d_act_prof response (by profile name) into
+            // phasesJson asynchronously and keeps live target values current.
             if (machineSession.isConnected()) {
                 try { machineSession.sendGetProfile(mp.id) } catch (_: Exception) { }
             }
 
+            val saved: ProfileEntity
             if (local == null) {
-                val entity = ProfileEntity(
+                saved = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
@@ -142,28 +142,56 @@ class SyncManager(
                     createdAt = System.currentTimeMillis()
                 )
                 if (BuildConfig.DEBUG)
-                    Log.d("GagMateProfile", "fullSync: ADDED profile id=$mId name='${entity.name}' (phases filled via WS g_prof)")
-                localRepo.saveProfile(entity)
+                    Log.d("GagMateProfile", "fullSync: ADDED profile id=$mId name='${saved.name}'")
+                localRepo.saveProfile(saved)
                 profilesAdded++
             } else {
-                when (local.syncStatus) {
+                saved = when (local.syncStatus) {
                     SyncStatus.SYNCED -> {
-                        // Refresh metadata only; phasesJson is filled by the WS
-                        // collector (we must NOT clobber in-flight/already-synced phases).
-                        val updated = local.copy(
+                        // Refresh metadata only; phasesJson is filled below
+                        // (we must NOT clobber in-flight/already-synced phases).
+                        local.copy(
                             name = mp.name,
                             machineProfileId = mId,
                             syncStatus = SyncStatus.SYNCED,
                             machineUpdatedAt = System.currentTimeMillis()
-                        )
-                        localRepo.saveProfile(updated)
-                        profilesUpdated++
+                        ).also { profilesUpdated++ }
                     }
-                    SyncStatus.LOCAL_ONLY -> { /* shouldn't happen */ }
+                    SyncStatus.LOCAL_ONLY -> local
                     SyncStatus.MODIFIED, SyncStatus.CONFLICT -> {
                         // User's local edits win — never overwrite their phases.
-                        localRepo.saveProfile(local.copy(syncStatus = SyncStatus.CONFLICT))
-                        profilesConflicted++
+                        local.copy(syncStatus = SyncStatus.CONFLICT).also { profilesConflicted++ }
+                    }
+                }
+                localRepo.saveProfile(saved)
+            }
+
+            // Seed phasesJson with the REAL (eased) recipe from REST
+            // GET /api/profile/{id}. This is the only reliable source of curve
+            // types (EASE_OUT / EASE_IN_OUT / …) — the WebSocket d_prof stream
+            // only carries FLAT. Storing it here means the profile detail page
+            // renders eased curves both live AND offline. Skip user-edited
+            // profiles, and skip any profile that already holds real curves so
+            // we don't re-fetch REST on every sync.
+            if (saved.syncStatus == SyncStatus.SYNCED && machineSession.isConnected()) {
+                val alreadyReal = runCatching {
+                    val list = gson.fromJson<List<BrewPhase>>(
+                        saved.phasesJson, object : TypeToken<List<BrewPhase>>() {}.type
+                    )
+                    list.any { it.variation != "FLAT" && it.variation != "LINEAR" }
+                }.getOrDefault(false)
+                if (!alreadyReal) {
+                    runCatching {
+                        val detail = machineRepo.getProfileDetail(mId).getOrNull()
+                        if (detail != null && detail.phases.isNotEmpty()) {
+                            val phases = detail.phases.map { it.toBrewPhase() }
+                            localRepo.saveProfile(saved.copy(phasesJson = gson.toJson(phases)))
+                            if (BuildConfig.DEBUG)
+                                Log.d(
+                                    "GagMateProfile",
+                                    "fullSync: stored REST detail phases (${phases.size}) for id=$mId name='${saved.name}'"
+                                )
+                        }
                     }
                 }
             }

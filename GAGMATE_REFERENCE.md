@@ -1,6 +1,6 @@
 # GagMate — Gaggiuino Android Client Reference
 
-> 文档版本: 2026-07-24  
+> 文档版本: 2026-07-28  
 > 目标设备: Gaggiuino Gen3 (STM32U585, PCB v3b/v3.1)  
 > 通信协议: WebSocket (实时) + REST API (非实时)  
 > 数据编码: Custom Protobuf (WS) / JSON (REST)
@@ -439,9 +439,9 @@ REST 调用封装:
 **文件**: [`SyncManager.kt`](app/src/main/java/com/gagmate/app/data/repository/SyncManager.kt)
 
 - `fullSync()` — 全量同步
-- `syncProfiles()` — 同步曲线列表：在同步时为每台机器 profile 发 **WS `g_prof`**，由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`。这是 profile 详情 / 仪表盘激活曲线**离线可绘制**的权威「当前」定义来源（值）。⚠️ 因 WS `d_prof` **不携带 curve 类型**，离线 `phasesJson` 中 curve 恒为 `FLAT`；联网时由 `fetchProfilePhases` 叠加 REST/shot 的真实 curve 以呈现缓动。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
+- `syncProfiles()` — 同步曲线列表：在同步时为每台机器 profile 发 **WS `g_prof`**（实时值），由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`；收集器写入时会**沿用 `phasesJson` 中已有的真实 curve 类型**（按 phase 序），避免后续 FLAT 的 `d_prof` 把缓动擦掉。此外，`syncProfiles` 在同步时为每条 `SYNCED` profile **额外调用 REST `GET /api/profile/{id}`**，把带真实 `EASE_*` curve 字符串的相位写回 `phasesJson`（best-effort：仅当连接可用且该 profile 尚未含真实 curve 时取）。这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
 - `syncShots()` — 仅同步萃取记录 (REST → 本地 DB)。**shot 是萃取历史快照，不作为 profile 离线数据来源。**
-- 注意：`MachineRepository.fetchProfilePhases()` 仅用于**联网时的实时展示**，并负责把 WS 的 `FLAT` curve 叠加为 REST/shot 的真实 curve 类型（按 phase 序）；落库以 `syncProfiles` 的 WS g_prof 为准（离线 `phasesJson` 的 curve 为 `FLAT`）。
+- 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，并把 WS 的 `FLAT` curve 叠加为 REST/shot 的真实 curve 类型（按 phase 序）。**离线时详情/图表直接读本地 `phasesJson`**——该字段现在已由 `syncProfiles` 的 REST 取数写入真实 `EASE_*` curve（见上文），因此离线也能呈现缓动曲线，不再依赖联网叠加。
 
 ### 6.8 SettingsRepository
 
