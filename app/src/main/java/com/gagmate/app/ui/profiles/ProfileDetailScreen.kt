@@ -110,11 +110,13 @@ private fun ProfileDetailContent(
 
     val phasesList = phasesFromJson.takeIf { it.isNotEmpty() }
 
-    // Current phase targets come LIVE from the machine over WebSocket
-    // (g_prof → d_prof). This firmware does not expose the REST profile-detail
-    // endpoint, so the authoritative "now" recipe is only available this way.
-    // The local DB (phasesJson) and the latest shot's embedded profile are used
-    // as fallbacks by the chart (phasesList) when the live request yields nothing.
+    // The authoritative phase/curve definitions come from the shot-EMBEDDED
+    // profile (persisted into shot_records.embedded_phases_json and mirrored into
+    // ProfileEntity.phasesJson by SyncManager.syncShots). REST detail
+    // GET /api/profile/{id} is dead on this firmware (returns SPA HTML) and WS
+    // d_prof carries no curve enum, so shot-embedded is the only real EASE_*
+    // source. fetchProfilePhases overlays live WS g_prof VALUES (FLAT) onto those
+    // curves for the chart; when offline it falls back to the local DB phasesJson.
     var fetchedPhases by remember(profile.id) { mutableStateOf<List<BrewPhase>>(emptyList()) }
     LaunchedEffect(profile.machineProfileId, profile.name) {
         if (BuildConfig.DEBUG)

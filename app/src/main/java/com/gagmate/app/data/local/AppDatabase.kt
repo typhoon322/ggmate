@@ -19,7 +19,7 @@ import com.gagmate.app.data.local.entity.ShotEntity
         ShotEntity::class,
         MachineSettingsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -72,6 +72,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v5 → v6: persist the shot-embedded profile so it can act as the
+         * authoritative phase/curve source offline.
+         *
+         * REST `GET /api/profile/{id}` is dead on this firmware (returns the SPA
+         * HTML) and WS `d_prof` carries no curve enum, so the only reliable place
+         * to read real EASE_* curve strings is the profile embedded inside each
+         * shot record. We add `profile_id` and `embedded_phases_json` columns to
+         * `shot_records` (both defaulted, so existing rows migrate cleanly).
+         */
+        private val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE shot_records ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE shot_records ADD COLUMN embedded_phases_json TEXT NOT NULL DEFAULT '[]'")
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase {
@@ -81,7 +98,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

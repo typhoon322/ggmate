@@ -94,6 +94,14 @@ class LocalDataRepository(private val db: AppDatabase) {
     /** IDs of shots already stored locally — lets sync skip re-downloads. */
     suspend fun getExistingShotIds(): List<String> = shotDao.getExistingIds()
 
+    /** Most recent shot whose embedded profile matches the given profile name. */
+    suspend fun getLatestShotByProfileName(name: String): ShotEntity? =
+        shotDao.getLatestByProfileName(name)
+
+    /** Most recent shot whose embedded profile id matches the given machine id. */
+    suspend fun getLatestShotByProfileId(id: String): ShotEntity? =
+        shotDao.getLatestByProfileId(id)
+
     suspend fun deleteShot(id: String) = shotDao.deleteById(id)
 
     // ── Machine settings ────────────────────────────────────────────

@@ -26,8 +26,7 @@ import kotlinx.coroutines.*
  */
 class SyncManager(
     private val localRepo: LocalDataRepository,
-    private val machineRepo: MachineRepository,
-    private val machineSession: com.gagmate.app.data.session.MachineSessionManager
+    private val machineRepo: MachineRepository
 ) {
     private val gson = Gson()
 
@@ -121,13 +120,6 @@ class SyncManager(
             val mId = mp.id.toString()
             val local = localProfiles[mId]
 
-            // Fire the WebSocket g_prof request too — the WS→Room collector
-            // persists the d_prof/d_act_prof response (by profile name) into
-            // phasesJson asynchronously and keeps live target values current.
-            if (machineSession.isConnected()) {
-                try { machineSession.sendGetProfile(mp.id) } catch (_: Exception) { }
-            }
-
             val saved: ProfileEntity
             if (local == null) {
                 saved = ProfileEntity(
@@ -165,47 +157,6 @@ class SyncManager(
                 }
                 localRepo.saveProfile(saved)
             }
-
-            // Seed phasesJson with the REAL (eased) recipe from REST
-            // GET /api/profile/{id}. This is the only reliable source of curve
-            // types (EASE_OUT / EASE_IN_OUT / …) — the WebSocket d_prof stream
-            // only carries FLAT. Storing it here means the profile detail page
-            // renders eased curves both live AND offline. Skip user-edited
-            // profiles, and skip any profile that already holds real curves so
-            // we don't re-fetch REST on every sync.
-            //
-            // NOTE: do NOT gate this on machineSession.isConnected(). REST uses
-            // the same Retrofit client and base URL as the profile list fetch
-            // above; it can succeed before the WebSocket handshake completes.
-            // The previous WS-only guard caused the seeder to be skipped during
-            // the 500 ms startup sync on slow connections, leaving stale garbage
-            // phases_json in the DB.
-            if (saved.syncStatus == SyncStatus.SYNCED) {
-                val needsRefetch = runCatching {
-                    val list = gson.fromJson<List<BrewPhase>>(
-                        saved.phasesJson, object : TypeToken<List<BrewPhase>>() {}.type
-                    )
-                    // Empty or all-zero phases are not authoritative: re-fetch.
-                    // A real recipe has at least one phase with target > 0 or
-                    // meaningful time, and a non-FLAT/LINEAR curve variation.
-                    list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f } ||
-                        list.none { it.variation != "FLAT" && it.variation != "LINEAR" }
-                }.getOrDefault(true)
-                if (needsRefetch) {
-                    runCatching {
-                        val detail = machineRepo.getProfileDetail(mId).getOrNull()
-                        if (detail != null && detail.phases.isNotEmpty()) {
-                            val phases = detail.phases.map { it.toBrewPhase() }
-                            localRepo.saveProfile(saved.copy(phasesJson = gson.toJson(phases)))
-                            if (BuildConfig.DEBUG)
-                                Log.d(
-                                    "GagMateProfile",
-                                    "fullSync: stored REST detail phases (${phases.size}) for id=$mId name='${saved.name}'"
-                                )
-                        }
-                    }
-                }
-            }
         }
 
         val localOnly = localRepo.getPendingUploads()
@@ -234,6 +185,9 @@ class SyncManager(
 
     private suspend fun syncShots(): SyncResult {
         var shotsAdded = 0
+        // profile name -> (timestamp, real EASE_* phases) for the most recent
+        // matching shot. Built from BOTH freshly-fetched and already-local shots.
+        val latestPhasesByName = mutableMapOf<String, Pair<Long, List<BrewPhase>>>()
         try {
             val latestId = machineRepo.getLatestShotId().getOrNull() ?: return SyncResult()
             val latestIdInt = latestId.toIntOrNull() ?: return SyncResult()
@@ -241,22 +195,80 @@ class SyncManager(
             // Skip shots already stored locally so re-syncs are cheap.
             val existing = localRepo.getExistingShotIds().toSet()
             val toFetch = (1..latestIdInt).map { it.toString() }.filter { !existing.contains(it) }
-            if (toFetch.isEmpty()) return SyncResult()
 
             // Fetch missing shots concurrently (bounded) instead of one-by-one.
-            val fetched = coroutineScope {
-                withContext(Dispatchers.IO.limitedParallelism(4)) {
-                    toFetch.map { id -> async { machineRepo.getShotDetail(id).getOrNull() } }.awaitAll()
+            val fetched = if (toFetch.isNotEmpty()) {
+                coroutineScope {
+                    withContext(Dispatchers.IO.limitedParallelism(4)) {
+                        toFetch.map { id -> async { machineRepo.getShotDetail(id).getOrNull() } }.awaitAll()
+                    }
                 }
-            }
+            } else emptyList()
+
             fetched.forEach { detail ->
                 if (detail != null) {
                     localRepo.saveShot(ShotEntity.fromShotRecord(detail.toShotRecord()))
                     shotsAdded++
+                    val ep = detail.profile
+                    if (ep != null && ep.phases.isNotEmpty()) {
+                        recordLatestPhases(latestPhasesByName, ep.name, detail.timestamp, ep.phases.map { it.toBrewPhase() })
+                    }
                 }
             }
+
+            // Also consider already-local shots so pre-migration rows (whose
+            // embedded_phases_json was captured on a later sync) contribute.
+            localRepo.getAllShots().forEach { shot ->
+                val phases = shot.embeddedPhases()
+                if (phases.isNotEmpty()) {
+                    recordLatestPhases(latestPhasesByName, shot.profileName, shot.timestamp, phases)
+                }
+            }
+
+            seedProfilePhasesFromShots(latestPhasesByName)
         } catch (_: Exception) { }
         return SyncResult(shotsAdded = shotsAdded)
+    }
+
+    private fun recordLatestPhases(
+        map: MutableMap<String, Pair<Long, List<BrewPhase>>>,
+        name: String,
+        timestamp: Long,
+        phases: List<BrewPhase>
+    ) {
+        val prev = map[name]
+        if (prev == null || timestamp > prev.first) {
+            map[name] = timestamp to phases
+        }
+    }
+
+    /**
+     * Write real (EASE_*) phase definitions into any SYNCED profile that does not
+     * already carry genuine curve types. Source is the shot-embedded profile,
+     * which is the only reliable curve source on this firmware (REST detail is
+     * dead, WS d_prof has no curve enum). Never touches user-edited profiles.
+     */
+    private suspend fun seedProfilePhasesFromShots(latestPhasesByName: Map<String, Pair<Long, List<BrewPhase>>>) {
+        if (latestPhasesByName.isEmpty()) return
+        val type = object : TypeToken<List<BrewPhase>>() {}.type
+        localRepo.getAllProfiles().forEach { profile ->
+            if (profile.syncStatus != SyncStatus.SYNCED) return@forEach
+            val alreadyReal = runCatching {
+                gson.fromJson<List<BrewPhase>>(profile.phasesJson, type)
+                    .any { it.variation != "FLAT" && it.variation != "LINEAR" }
+            }.getOrDefault(false)
+            if (alreadyReal) return@forEach
+            val match = latestPhasesByName[profile.name] ?: return@forEach
+            if (match.second.isEmpty()) return@forEach
+            localRepo.saveProfile(
+                profile.copy(
+                    phasesJson = gson.toJson(match.second),
+                    localUpdatedAt = System.currentTimeMillis()
+                )
+            )
+            if (BuildConfig.DEBUG)
+                Log.d("GagMateProfile", "syncShots: seeded ${match.second.size} phases into profile '${profile.name}' from shot-embedded profile")
+        }
     }
 
     private suspend fun syncSettings() {

@@ -55,11 +55,11 @@ object AppContainer {
         localRepo = LocalDataRepository(db)
 
         machineSession = MachineSessionManager()
-        syncManager = SyncManager(localRepo, MachineRepository(), machineSession)
+        syncManager = SyncManager(localRepo, MachineRepository(localRepo))
         sensorRepo = SensorRepository(machineSession)
         shotRepo = ShotRepository(machineSession)
-        profileRepo = ProfileRepository(localRepo, MachineRepository(), machineSession, syncManager)
-        machineRepo = MachineRepository()
+        profileRepo = ProfileRepository(localRepo, MachineRepository(localRepo), machineSession, syncManager)
+        machineRepo = MachineRepository(localRepo)
 
         // Begin streaming live shot data into the rolling chart buffer
         // immediately, independent of which screen is currently shown.

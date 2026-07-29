@@ -21,6 +21,12 @@ interface ShotDao {
     @Query("SELECT id FROM shot_records")
     suspend fun getExistingIds(): List<String>
 
+    @Query("SELECT * FROM shot_records WHERE profile_name = :name ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestByProfileName(name: String): ShotEntity?
+
+    @Query("SELECT * FROM shot_records WHERE profile_id = :id ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestByProfileId(id: String): ShotEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(shot: ShotEntity)
 

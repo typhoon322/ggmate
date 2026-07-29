@@ -33,60 +33,21 @@ class ProfileRepository(
     private val repoScope = CoroutineScope(SupervisorJob())
 
     init {
-        // Subscribe to WS profile data: when d_prof/d_act_prof arrives via WebSocket,
-        // automatically update the local profile's phases
+        // Subscribe to WS profile data. NOTE: phase persistence now comes from
+        // shot-embedded profiles via SyncManager.syncShots — that is the only
+        // reliable curve source on this firmware (REST detail is dead, WS d_prof
+        // carries no curve enum). The d_prof stream here is used purely for LIVE
+        // display overlay inside MachineRepository.fetchProfilePhases, so we
+        // deliberately do NOT overwrite the shot-sourced phasesJson. We keep this
+        // subscription only for diagnostics/logging.
         repoScope.launch {
             session.profileDataReceived.collect { (name, phases) ->
-                try {
-                    val profiles = localRepo.getAllProfiles()
-                    val match = profiles.find { it.name == name }
-                    if (BuildConfig.DEBUG)
-                        Log.d(
-                            "GagMateProfile",
-                            "WS→Room: received name='$name' phases=${phases.size}; " +
-                                "localNames=[${profiles.joinToString { "'${it.name}'" }}] matched=${match != null}"
-                        )
-                    if (match != null) {
-                        // This firmware's WS protobuf profile stream is known to
-                        // emit all-zero phases; never let that clobber the
-                        // authoritative REST-synced data already in the DB.
-                        val allZero = phases.isNotEmpty() && phases.all { it.target == 0f && it.time <= 0.1f }
-                        if (allZero) {
-                            if (BuildConfig.DEBUG)
-                                Log.w("GagMateProfile", "WS→Room: dropped all-zero phases for name='$name' (would clobber REST data)")
-                        } else {
-                            // The WS d_prof stream only carries FLAT curve types
-                            // (real EASE_* curves live in REST detail / synced
-                            // phasesJson). Preserve any existing real curve types
-                            // from the stored phasesJson so a later FLAT WS update
-                            // does not wipe the eased curve the detail chart needs.
-                            val existingPhases = runCatching {
-                                gson.fromJson<List<BrewPhase>>(
-                                    match.phasesJson, object : TypeToken<List<BrewPhase>>() {}.type
-                                )
-                            }.getOrDefault(emptyList())
-                            val merged = if (existingPhases.size == phases.size) {
-                                phases.mapIndexed { i, wp ->
-                                    val ev = existingPhases[i].variation
-                                    if (ev.isNotBlank() && ev != "FLAT" && ev != "LINEAR") {
-                                        wp.copy(variation = ev)
-                                    } else wp
-                                }
-                            } else phases
-                            val updated = match.copy(
-                                phasesJson = gson.toJson(merged),
-                                localUpdatedAt = System.currentTimeMillis()
-                            )
-                            localRepo.saveProfile(updated)
-                            if (BuildConfig.DEBUG)
-                                Log.d("GagMateProfile", "WS→Room: WROTE phasesJson (${updated.phasesJson.length}B) for name='$name' (curves preserved)")
-                        }
-                    } else if (BuildConfig.DEBUG) {
-                        Log.w("GagMateProfile", "WS→Room: NO local profile matched name='$name' — phases dropped")
-                    }
-                } catch (e: Exception) {
-                    if (BuildConfig.DEBUG) Log.e("GagMateProfile", "WS→Room: error for name='$name': ${e.message}")
-                }
+                if (BuildConfig.DEBUG)
+                    Log.d(
+                        "GagMateProfile",
+                        "WS→Room: received name='$name' phases=${phases.size} " +
+                            "(live-only; persistence handled by syncShots from shot-embedded profile)"
+                    )
             }
         }
     }

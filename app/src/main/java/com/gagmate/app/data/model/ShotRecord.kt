@@ -30,8 +30,12 @@ data class ShotRecord(
     val id: String = "",
     val timestamp: Long = 0L,
     val profile: String = "",
+    /** Machine profile id embedded in the shot, if any. */
+    val profileId: String = "",
     val duration: Float = 0f,
     val volume: Float = 0f,
+    /** Real (EASE_*) brew phases from the shot's embedded profile. */
+    val embeddedPhases: List<BrewPhase> = emptyList(),
     val data: List<ShotDataPoint> = emptyList()
 )
 
@@ -86,9 +90,11 @@ data class ShotRecordApi(
             id = id.toString(),
             timestamp = normalizeShotTimestamp(timestamp),
             profile = profile?.name ?: "",
+            profileId = profile?.id?.toString() ?: "",
             duration = durationSec,
             volume = if (lastShotWeight > 0f) lastShotWeight
                      else (points.lastOrNull()?.weight ?: 0f),
+            embeddedPhases = profile?.phases?.map { it.toBrewPhase() } ?: emptyList(),
             data = points
         )
     }

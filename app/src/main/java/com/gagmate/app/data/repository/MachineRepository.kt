@@ -7,7 +7,6 @@ import com.gagmate.app.data.model.ShotRecordApi
 import com.gagmate.app.data.model.ShotProfile
 import com.gagmate.app.data.model.EmbeddedProfile
 import com.gagmate.app.data.model.BrewPhase
-import com.gagmate.app.data.model.toBrewPhase
 
 /**
  * Repository for accessing Gaggiuino v3 machine data via REST API.
@@ -15,7 +14,9 @@ import com.gagmate.app.data.model.toBrewPhase
  * Real-time data and control commands go through WebSocket ([MachineSessionManager]).
  * REST is used only for non-real-time operations: history, configuration, uploads.
  */
-class MachineRepository {
+class MachineRepository(
+    private val localRepo: LocalDataRepository? = null
+) {
 
     private val api get() = GgboardApiClient.getApi()
 
@@ -91,46 +92,32 @@ class MachineRepository {
     /**
      * Resolve the phase list for a profile for LIVE display.
      *
-     * The Gaggiuino WebSocket `d_prof`/`d_act_prof` payload does NOT carry the
-     * per-phase *curve type* (EASE_OUT / EASE_IN_OUT / …): [ProtoDecoder]
-     * can only read it as a numeric enum, which the firmware sends as 0, so all
-     * WS phases collapse to `variation = "FLAT"` and the chart draws straight
-     * lines. The genuine curve type lives **only as a string** in:
-     *   1. REST `GET /api/profile/{id}` → `EmbeddedProfile` (`PhaseV3.toBrewPhase`
-     *      maps `target.curve` → `variation`, uppercased). May be unsupported on
-     *      some firmware; treated as best-effort.
-     *   2. The most recent shot's *embedded* profile (`GET /api/shots/{id}` →
-     *      `profile.phases`), matched by name or profile id — proven in logs to
-     *      carry the real curve strings (e.g. EASE_OUT, EASE_IN_OUT).
+     * Curve-source decision (see project log analysis + CODE_REVIEW §0):
+     *   - REST `GET /api/profile/{id}` is DEAD on this firmware — it returns the
+     *     SPA index.html, so it cannot supply curve types.
+     *   - WS `d_prof` carries phase values but NOT the curve enum (decoder sees
+     *     only 0 → always FLAT).
+     *   - The ONLY reliable source of real EASE_* curve strings is the profile
+     *     EMBEDDED in shot records (`GET /api/shots/{id}` → `profile.phases`,
+     *     mirrored into `shot_records.embedded_phases_json`). Those are persisted
+     *     by [com.gagmate.app.data.repository.SyncManager.syncShots] and are
+     *     available offline.
      *
-     * Strategy (live display only — persistence happens via the WS→Room
-     * collector in [com.gagmate.app.data.repository.ProfileRepository]):
-     *   1. Fetch live phases from WS `g_prof` (authoritative current values).
-     *   2. Independently resolve a *curve-type source* (REST detail, else
-     *      shot-embedded). When both exist with matching phase counts, overlay
-     *      the real curve types onto the live WS values so the chart renders
-     *      eased transitions. Otherwise fall back to the curve source, then WS.
+     * Strategy (live display only — persistence happens via `syncShots`):
+     *   1. Curve source = most recent local shot whose embedded profile matches
+     *      this profile (by name, or by machine id). Real EASE_* strings.
+     *   2. Live WS `g_prof`→`d_prof` *values* (FLAT curve), overlaid onto the
+     *      curve source when phase counts match, so the chart shows eased
+     *      transitions AND current machine values.
+     *   3. Fall back to the curve source alone, then to WS alone.
      *
      * Returns an empty list only if every source is unavailable.
      */
     suspend fun fetchProfilePhases(id: String?, name: String): List<BrewPhase> {
         val intId = id?.toIntOrNull()
 
-        // (A) Curve-type source — carries genuine EASE_* strings.
-        val restPhases: List<BrewPhase>? = if (intId != null) {
-            getProfileDetail(intId.toString()).getOrNull()
-                ?.takeIf { it.phases.isNotEmpty() }
-                ?.let { it.phases.map { p -> p.toBrewPhase() } }
-        } else null
-        val shotPhases: List<BrewPhase>? = runCatching {
-            val latestId = getLatestShotId().getOrNull() ?: return@runCatching null
-            val shot = getShotDetail(latestId).getOrNull() ?: return@runCatching null
-            shot.profile
-                ?.takeIf { it.name == name || it.id == intId }
-                ?.phases?.takeIf { it.isNotEmpty() }
-                ?.map { it.toBrewPhase() }
-        }.getOrNull()
-        val curveSource: List<BrewPhase>? = restPhases ?: shotPhases
+        // (A) Curve source — real EASE_* strings from a shot-embedded profile.
+        val shotPhases: List<BrewPhase>? = resolveShotPhases(intId, name)
 
         // (B) Live WS definition — authoritative values, but curve type is FLAT.
         val wsPhases: List<BrewPhase>? = if (intId != null && name.isNotBlank()) {
@@ -142,16 +129,35 @@ class MachineRepository {
 
         return when {
             // Merge: keep live WS values, overlay real curve types by phase index.
-            wsPhases != null && curveSource != null && curveSource.size == wsPhases.size -> {
+            wsPhases != null && shotPhases != null && shotPhases.size == wsPhases.size -> {
                 wsPhases.mapIndexed { i, wp ->
-                    val cv = curveSource[i].variation
+                    val cv = shotPhases[i].variation
                     if (cv.isNotBlank() && cv != "FLAT" && cv != "LINEAR") wp.copy(variation = cv) else wp
                 }
             }
-            curveSource != null -> curveSource
+            shotPhases != null -> shotPhases
             wsPhases != null -> wsPhases
             else -> emptyList()
         }
+    }
+
+    /**
+     * Find the most recent locally-stored shot whose embedded profile matches the
+     * requested profile, and return its real (EASE_*) phase definitions.
+     * Offline-capable; returns null if no matching shot has been synced yet.
+     */
+    private suspend fun resolveShotPhases(intId: Int?, name: String): List<BrewPhase>? {
+        if (name.isBlank() && intId == null) return null
+        val repo = localRepo ?: return null
+        return runCatching {
+            // Prefer name match (machine enforces unique profile names); fall back
+            // to machine id when only the id is known.
+            val shot = repo.getLatestShotByProfileName(name)
+                ?: (intId?.toString()?.let { repo.getLatestShotByProfileId(it) })
+                ?: return@runCatching null
+            val phases = shot.embeddedPhases().takeIf { it.isNotEmpty() } ?: return@runCatching null
+            phases
+        }.getOrNull()
     }
 
     fun updateConnection(host: String, port: Int = 80) {

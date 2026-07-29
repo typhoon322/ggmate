@@ -230,6 +230,28 @@
 
 ---
 
+## 0j. 本轮改动（2026-07-29 续：profile 详情/曲线仍空白 → 根因是 REST 详情端点在本机固件为 dead，最终确定 shot 内嵌 profile 为唯一曲线源）
+
+基于 `gagmate_combined(6).log`（2026-07-28→29）复核，推翻 §0g/§0i 中「REST `GET /api/profile/{id}` 可用、作为离线曲线主要来源」的假设。
+
+### 日志实证（三条关键事实）
+1. **`GET /api/profile/{id}` 在本机固件返回 SPA `index.html`**：对每一个 profile id（8/17/19/18/27/15/11/7/9/10/14/2/1/3/4/5/6/22/28/31/33）均 HTTP 200，但 body 是 `<!DOCTYPE html>…<title>Gaggiuino</title>`。§0g/§0i 的 REST 落库分支 `machineRepo.getProfileDetail(mId)` 永远 Gson 解析失败 → `phases_json` 从未被真实填充；而 `MIGRATION_4_5` 又把它 wipe 成 `"[]"`，于是详情页一直空白。
+2. **WS `d_prof`/`d_act_prof` 确实不携带 curve 类型**（protobuf schema 与 `ProtoDecoder.decodePhaseInfo` 不匹配、且无 0–6 curve 枚举）→ 解出来恒 `FLAT` + 乱码 name。不能作为曲线来源。
+3. **shot 内嵌 `profile.phases` 携带真实 `EASE_*` 字符串**：日志中 `GET /api/shots/24` 返回 `profile:{id:33,name:"turbo shot",phases:[{target:{end:3.5,curve:"EASE_OUT",time:5000}}…]}`；全日志 `EASE_IN`×26、`EASE_OUT`×52。这是唯一真实曲线来源（仪表盘「当前曲线」已靠它缓动）。
+
+### 最终方案（用户确认：改用 shot 内嵌 profile 作为曲线源）
+- **持久化**：`ShotEntity` 新增 `profile_id`、`embedded_phases_json` 两列（Room **v5→v6** `MIGRATION_5_6`）。`ShotRecordApi.toShotRecord()` 捕获 shot 内嵌 `profile.id` + `profile.phases`（经 `PhaseV3.toBrewPhase()`）落库；`ShotEntity.embeddedPhases()` 回读。
+- **落库给 profile**：`SyncManager.syncShots()` 在同步 shot 时，收集每个 profile 名**最近一条** shot 的 `embedded_phases`，再为所有 `SYNCED` 且尚未含真实 curve 的 `ProfileEntity` 写回 `phases_json`。这样离线打开详情/图表也能读真实缓动曲线。**原 `syncProfiles` 中的 REST 落库分支与同步时的 `sendGetProfile` 已删除**（REST 是 dead 端点）。
+- **实时展示**：`MachineRepository.fetchProfilePhases(id,name)` curve 来源改为 `resolveShotPhases()` —— 取本地「profile 名（或 id）匹配的最近 shot」的 `embedded_phases`（离线可用）；再把 WS `g_prof`→`d_prof` 的**实时值**按 phase 序叠加到真实 curve 上（phase 数一致时）。WS 不再负责落库。
+- **`ProfileRepository` 的 WS→Room 收集器**：原本会把 `d_prof` 写回 `phases_json`，但 WS 是 FLAT/乱码，会覆盖 shot 来源的好数据。现改为**只记录日志、不再写库**（phase 持久化完全由 `syncShots` 负责）。
+- ⚠️ 含义修正：§0e 中「shot 是历史快照、不能当离线权威」的判断**不再成立**——本固件下 shot 内嵌 profile 恰恰是**唯一**可靠的真实曲线来源；WS 与 REST 都不行。
+
+### 验证
+- `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**。
+- 复测：连机全量同步后，日志应出现 `syncShots: seeded N phases into profile 'X' from shot-embedded profile`；断网打开任意 profile 详情应显示相位 + `EASE_*` 缓动曲线（来自本地 `phases_json`）。
+
+---
+
 ## 1. 项目架构（整理）
 
 ### 1.1 分层结构
