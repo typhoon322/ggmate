@@ -185,18 +185,33 @@ class SyncManager(
 
     private suspend fun syncShots(): SyncResult {
         var shotsAdded = 0
-        // profile name -> (timestamp, real EASE_* phases) for the most recent
-        // matching shot. Built from BOTH freshly-fetched and already-local shots.
+        // profile name -> (timestamp ms, real EASE_* phases) for the most recent
+        // matching shot. Built from ALL locally-stored shots after fetching.
         val latestPhasesByName = mutableMapOf<String, Pair<Long, List<BrewPhase>>>()
         try {
             val latestId = machineRepo.getLatestShotId().getOrNull() ?: return SyncResult()
             val latestIdInt = latestId.toIntOrNull() ?: return SyncResult()
 
             // Skip shots already stored locally so re-syncs are cheap.
-            val existing = localRepo.getExistingShotIds().toSet()
-            val toFetch = (1..latestIdInt).map { it.toString() }.filter { !existing.contains(it) }
+            val localShots = localRepo.getAllShots()
+            val existing = localShots.map { it.id }.toSet()
+            val toFetch = (1..latestIdInt).map { it.toString() }
+                .filter { !existing.contains(it) }
+                .toMutableList()
 
-            // Fetch missing shots concurrently (bounded) instead of one-by-one.
+            // Backfill (v5→v6 compatibility): rows synced BEFORE the migration
+            // have embedded_phases_json = '[]' and would otherwise never be
+            // re-fetched, so seeding could never happen for users whose shots
+            // are all pre-migration. While any SYNCED profile still lacks
+            // usable phases, re-fetch those rows so the embedded profile gets
+            // captured. Self-limiting: once every profile is seeded, this
+            // refetch stops.
+            if (anyProfileNeedsSeeding()) {
+                localShots.filter { it.embeddedPhases().isEmpty() }
+                    .forEach { toFetch.add(it.id) }
+            }
+
+            // Fetch shots concurrently (bounded) instead of one-by-one.
             val fetched = if (toFetch.isNotEmpty()) {
                 coroutineScope {
                     withContext(Dispatchers.IO.limitedParallelism(4)) {
@@ -207,17 +222,18 @@ class SyncManager(
 
             fetched.forEach { detail ->
                 if (detail != null) {
-                    localRepo.saveShot(ShotEntity.fromShotRecord(detail.toShotRecord()))
-                    shotsAdded++
-                    val ep = detail.profile
-                    if (ep != null && ep.phases.isNotEmpty()) {
-                        recordLatestPhases(latestPhasesByName, ep.name, detail.timestamp, ep.phases.map { it.toBrewPhase() })
-                    }
+                    // toShotRecord() normalizes the timestamp to epoch ms — the
+                    // same unit stored in shot_records — so all timestamp
+                    // comparisons below stay consistent.
+                    val entity = ShotEntity.fromShotRecord(detail.toShotRecord())
+                    localRepo.saveShot(entity)  // REPLACE upsert: safe for backfill
+                    if (!existing.contains(entity.id)) shotsAdded++
                 }
             }
 
-            // Also consider already-local shots so pre-migration rows (whose
-            // embedded_phases_json was captured on a later sync) contribute.
+            // Build the per-profile "latest real phases" map from the DB state
+            // AFTER saving, so freshly-fetched, backfilled and pre-existing rows
+            // all contribute with normalized-ms timestamps.
             localRepo.getAllShots().forEach { shot ->
                 val phases = shot.embeddedPhases()
                 if (phases.isNotEmpty()) {
@@ -228,6 +244,17 @@ class SyncManager(
             seedProfilePhasesFromShots(latestPhasesByName)
         } catch (_: Exception) { }
         return SyncResult(shotsAdded = shotsAdded)
+    }
+
+    /** True if any SYNCED profile still has empty/garbage phases (needs seeding). */
+    private suspend fun anyProfileNeedsSeeding(): Boolean {
+        val type = object : TypeToken<List<BrewPhase>>() {}.type
+        return localRepo.getAllProfiles().any { p ->
+            p.syncStatus == SyncStatus.SYNCED && runCatching {
+                val list = gson.fromJson<List<BrewPhase>>(p.phasesJson, type) ?: emptyList()
+                list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f }
+            }.getOrDefault(true)
+        }
     }
 
     private fun recordLatestPhases(
@@ -243,21 +270,30 @@ class SyncManager(
     }
 
     /**
-     * Write real (EASE_*) phase definitions into any SYNCED profile that does not
-     * already carry genuine curve types. Source is the shot-embedded profile,
-     * which is the only reliable curve source on this firmware (REST detail is
-     * dead, WS d_prof has no curve enum). Never touches user-edited profiles.
+     * Write real (EASE_*) phase definitions into any SYNCED profile whose
+     * stored phases are NOT authoritative (empty or all-zero). Source is the
+     * shot-embedded profile — the only reliable curve source on this firmware
+     * (REST detail is dead, WS d_prof has no curve enum).
+     *
+     * Write-guard hierarchy (must never conflict with other write paths):
+     *   - Non-SYNCED (MODIFIED/CONFLICT/LOCAL_ONLY) → never touched here.
+     *   - SYNCED with meaningful phases (any non-zero target/time) → never
+     *     overwritten, even if all curves are LINEAR/FLAT. A user edit pushed
+     *     via pushAndSaveIfConfirmed() lands as SYNCED and may legitimately be
+     *     all-LINEAR; a stale shot from before the edit must NOT clobber it.
+     *   - Only empty / all-zero phasesJson (post-MIGRATION_4_5 wipe, or fresh
+     *     rows created by syncProfiles with "[]") is eligible for seeding.
      */
     private suspend fun seedProfilePhasesFromShots(latestPhasesByName: Map<String, Pair<Long, List<BrewPhase>>>) {
         if (latestPhasesByName.isEmpty()) return
         val type = object : TypeToken<List<BrewPhase>>() {}.type
         localRepo.getAllProfiles().forEach { profile ->
             if (profile.syncStatus != SyncStatus.SYNCED) return@forEach
-            val alreadyReal = runCatching {
-                gson.fromJson<List<BrewPhase>>(profile.phasesJson, type)
-                    .any { it.variation != "FLAT" && it.variation != "LINEAR" }
-            }.getOrDefault(false)
-            if (alreadyReal) return@forEach
+            val notAuthoritative = runCatching {
+                val list = gson.fromJson<List<BrewPhase>>(profile.phasesJson, type) ?: emptyList()
+                list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f }
+            }.getOrDefault(true)
+            if (!notAuthoritative) return@forEach
             val match = latestPhasesByName[profile.name] ?: return@forEach
             if (match.second.isEmpty()) return@forEach
             localRepo.saveProfile(

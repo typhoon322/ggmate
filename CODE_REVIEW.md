@@ -256,6 +256,13 @@
 - **修复**：迁移 SQL 改为 `ALTER TABLE shot_records ADD COLUMN profile_id TEXT`（可空、无默认值），与 Entity 严格一致；`embedded_phases_json` 保持 `TEXT NOT NULL DEFAULT '[]'`（对应非空 `String`）。
 - **教训**：写 Room `Migration` 时，新增列的**可空性与默认值必须逐字对齐 Entity 声明**（`String?` → 可空 TEXT；非空 `String` → `NOT NULL DEFAULT`）。
 
+### 兼容性加固（2026-07-29 傍晚）：消除写路径冲突 + 旧数据回填
+针对「多来源取数是否互相冲突」的复查，修复三处隐患（均在 `SyncManager.syncShots` / `seedProfilePhasesFromShots`）：
+1. **旧 shot 行永不回填**：迁移前同步的行 `embedded_phases_json='[]'` 且 id 已存在、不会被重新拉取 → 若用户的 shot 全是迁移前的，seed 永远不触发。修复：当 `anyProfileNeedsSeeding()` 为真时，重新拉取本地空相位 shot 行并 REPLACE upsert 回填；全部 profile seed 完成后自动停止（自限流）。
+2. **seed 可能覆盖用户编辑**：原判据「无 EASE_* 就写」会把 `pushAndSaveIfConfirmed` 落库的合法全 LINEAR 编辑（SYNCED）用旧 shot 配方覆盖。修复：收紧为**仅空/全零（非权威）才 seed**；有意义数值的相位即使全 LINEAR/FLAT 也不覆盖。
+3. **时间戳单位错序**：原实现对新拉 shot 用 API 原始 `timestamp`（可能是秒）、对本地行用归一化毫秒做「最近一条」比较。修复：改为**落库后统一扫描本地行**（时间戳均已由 `toShotRecord()` 归一化为毫秒）再比较。
+- 当前写 `ProfileEntity.phasesJson` 的路径只剩 3 条且互斥：① 用户编辑（MODIFIED/SYNCED-confirmed，seed 永不覆盖）；② `syncShots` seed（仅空/全零 SYNCED）；③ `MIGRATION_4_5` wipe（一次性）。WS 收集器只读、`fetchProfilePhases` 只做展示不落库。
+
 ---
 
 ## 1. 项目架构（整理）

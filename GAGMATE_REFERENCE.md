@@ -445,10 +445,11 @@ REST 调用封装:
 - `fullSync()` — 全量同步
 - `syncProfiles()` — 同步曲线列表（元数据 + 新建/匹配本地行）。**不再**在同步时发 WS `g_prof`，也**不再**调用 dead 的 REST `GET /api/profile/{id}` 去填充相位（见 §6.3：该端点在本机固件返回 SPA HTML）。profile 的相位/曲线来源完全交给 `syncShots()`。
 - `syncShots()` — 同步萃取记录 (REST → 本地 DB)，并**顺带完成 profile 相位的落库**：
-  - 每条拉取的 shot 把其内嵌 `profile`（`EmbeddedProfile.phases`，含真实 `EASE_*` curve 字符串）写入 `ShotEntity.embeddedPhasesJson`（`ShotRecordApi.toShotRecord` 捕获 `profile.id` + `profile.phases`）；
-  - 收集每个 profile 名**最近一条** shot 的 `embedded_phases`（同时兼顾已存在于本地的 shot）；
-  - 为所有 `SYNCED` 且**尚未含真实 curve**（`variation` 非 `FLAT`/`LINEAR`、为空或全零）的 `ProfileEntity` 写回 `phasesJson`。
-  - 这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
+  - 每条拉取的 shot 把其内嵌 `profile`（`EmbeddedProfile.phases`，含真实 `EASE_*` curve 字符串）写入 `ShotEntity.embeddedPhasesJson`（`ShotRecordApi.toShotRecord` 捕获 `profile.id` + `profile.phases`，时间戳统一归一化为 epoch 毫秒）；
+  - **v5→v6 兼容回填**：迁移前同步的旧 shot 行 `embedded_phases_json='[]'` 且默认不会被重复拉取——若仍有 `SYNCED` profile 缺可用相位（`anyProfileNeedsSeeding()`），会**重新拉取这些空相位旧行**并 REPLACE upsert 回填；一旦全部 profile 已 seed，此回填自动停止（自限流）；
+  - 「最近一条」判定在**落库之后**扫描全部本地 shot 行，用统一的归一化毫秒时间戳比较，避免 API 原始秒 vs 本地毫秒错序；
+  - **seed 写库守卫**（防写路径冲突）：仅当 `SYNCED` profile 的 `phasesJson` **非权威**（为空或全零 target/time）才写入；含有意义数值的相位**即使全是 LINEAR/FLAT 也不覆盖**——用户经 `pushAndSaveIfConfirmed` 推送确认后的编辑落库为 `SYNCED`，可能合法地全 LINEAR，不能被旧 shot 的旧配方擦掉。非 `SYNCED`（MODIFIED/CONFLICT/LOCAL_ONLY）永不触碰。
+  - 这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。
 - 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，把 WS `g_prof` 的 `FLAT` 实时值叠加到 shot 来源的 curve 类型上（按 phase 序）。**离线时详情/图表直接读本地 `phasesJson`**——该字段现在由 `syncShots` 写入真实 `EASE_*` curve（见上文），因此离线也能呈现缓动曲线，不依赖联网叠加。
 
 ### 6.8 SettingsRepository
