@@ -173,14 +173,25 @@ class SyncManager(
             // renders eased curves both live AND offline. Skip user-edited
             // profiles, and skip any profile that already holds real curves so
             // we don't re-fetch REST on every sync.
-            if (saved.syncStatus == SyncStatus.SYNCED && machineSession.isConnected()) {
-                val alreadyReal = runCatching {
+            //
+            // NOTE: do NOT gate this on machineSession.isConnected(). REST uses
+            // the same Retrofit client and base URL as the profile list fetch
+            // above; it can succeed before the WebSocket handshake completes.
+            // The previous WS-only guard caused the seeder to be skipped during
+            // the 500 ms startup sync on slow connections, leaving stale garbage
+            // phases_json in the DB.
+            if (saved.syncStatus == SyncStatus.SYNCED) {
+                val needsRefetch = runCatching {
                     val list = gson.fromJson<List<BrewPhase>>(
                         saved.phasesJson, object : TypeToken<List<BrewPhase>>() {}.type
                     )
-                    list.any { it.variation != "FLAT" && it.variation != "LINEAR" }
-                }.getOrDefault(false)
-                if (!alreadyReal) {
+                    // Empty or all-zero phases are not authoritative: re-fetch.
+                    // A real recipe has at least one phase with target > 0 or
+                    // meaningful time, and a non-FLAT/LINEAR curve variation.
+                    list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f } ||
+                        list.none { it.variation != "FLAT" && it.variation != "LINEAR" }
+                }.getOrDefault(true)
+                if (needsRefetch) {
                     runCatching {
                         val detail = machineRepo.getProfileDetail(mId).getOrNull()
                         if (detail != null && detail.phases.isNotEmpty()) {

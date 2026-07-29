@@ -1,6 +1,6 @@
 # GagMate — Gaggiuino Android Client Reference
 
-> 文档版本: 2026-07-28  
+> 文档版本: 2026-07-29  
 > 目标设备: Gaggiuino Gen3 (STM32U585, PCB v3b/v3.1)  
 > 通信协议: WebSocket (实时) + REST API (非实时)  
 > 数据编码: Custom Protobuf (WS) / JSON (REST)
@@ -446,7 +446,7 @@ REST 调用封装:
 **文件**: [`SyncManager.kt`](app/src/main/java/com/gagmate/app/data/repository/SyncManager.kt)
 
 - `fullSync()` — 全量同步
-- `syncProfiles()` — 同步曲线列表：在同步时为每台机器 profile 发 **WS `g_prof`**（实时值），由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`；收集器写入时会**沿用 `phasesJson` 中已有的真实 curve 类型**（按 phase 序），避免后续 FLAT 的 `d_prof` 把缓动擦掉。此外，`syncProfiles` 在同步时为每条 `SYNCED` profile **额外调用 REST `GET /api/profile/{id}`**，把带真实 `EASE_*` curve 字符串的相位写回 `phasesJson`（best-effort：仅当连接可用且该 profile 尚未含真实 curve 时取）。这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
+- `syncProfiles()` — 同步曲线列表：在同步时为每台机器 profile 发 **WS `g_prof`**（实时值），由 `ProfileRepository` 的 WS→Room 收集器把 `d_prof`/`d_act_prof` 响应（按 name）落库到 `ProfileEntity.phasesJson`；收集器写入时会**沿用 `phasesJson` 中已有的真实 curve 类型**（按 phase 序），避免后续 FLAT 的 `d_prof` 把缓动擦掉。此外，`syncProfiles` 在同步时为每条 `SYNCED` profile **额外调用 REST `GET /api/profile/{id}`**，把带真实 `EASE_*` curve 字符串的相位写回 `phasesJson`（best-effort：仅当该 profile 尚未含真实 curve、为空或全零时取；不再用 `machineSession.isConnected()` 做前置判断，因为 REST 与 WS 握手无关）。这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。仅覆盖 `SYNCED` 状态，永不覆盖本地已编辑（MODIFIED/CONFLICT/LOCAL_ONLY）。
 - `syncShots()` — 仅同步萃取记录 (REST → 本地 DB)。**shot 是萃取历史快照，不作为 profile 离线数据来源。**
 - 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，并把 WS 的 `FLAT` curve 叠加为 REST/shot 的真实 curve 类型（按 phase 序）。**离线时详情/图表直接读本地 `phasesJson`**——该字段现在已由 `syncProfiles` 的 REST 取数写入真实 `EASE_*` curve（见上文），因此离线也能呈现缓动曲线，不再依赖联网叠加。
 
@@ -549,13 +549,14 @@ enum class ConnectionState {
 
 **实现文件**: [`AppDatabase.kt`](app/src/main/java/com/gagmate/app/data/local/AppDatabase.kt)
 
-Room 数据库, **版本 4**。`fallbackToDestructiveMigration` 仅作兜底，正式迁移通过 `Migration` 显式定义。
+Room 数据库, **版本 5**。`fallbackToDestructiveMigration` 仅作兜底，正式迁移通过 `Migration` 显式定义。
 
 ### 迁移 (Migrations)
 
 | 迁移 | 说明 |
 |------|------|
 | `MIGRATION_3_4` | 归一化 `shots.timestamp`：历史行存在"秒 / 毫秒 / 毫秒又被 ×1000"三种混乱单位，迁移时统一 `UPDATE` 为规范的 **epoch 毫秒**。 |
+| `MIGRATION_4_5` | 清除旧版 WS 解码器写入的**损坏 phases_json**：将其 `UPDATE profiles SET phases_json = '[]' WHERE sync_status = 'SYNCED'`，使下次 `syncProfiles` 能从 REST `GET /api/profile/{id}` 重新取回真实 `EASE_*` 曲线。用户编辑过的 profile（非 SYNCED）不受影响。 |
 
 ### 时间戳单位约定 (canonical = epoch ms)
 

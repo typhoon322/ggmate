@@ -19,7 +19,7 @@ import com.gagmate.app.data.local.entity.ShotEntity
         ShotEntity::class,
         MachineSettingsEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -56,6 +56,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 → v5: wipe stale, corrupted phases_json written by older WS decoders.
+         *
+         * Those records stored raw protobuf bytes in the "name" field and all-zero
+         * target/time/variation (FLAT), causing profile detail to show garbage.
+         * Reset SYNCED profiles to an empty phase list so the next full sync can
+         * re-seed them from REST GET /api/profile/{id} (the reliable source of
+         * real EASE_* curve types). User-edited profiles (MODIFIED/CONFLICT/
+         * LOCAL_ONLY) are left untouched.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE profiles SET phases_json = '[]' WHERE sync_status = 'SYNCED'")
+            }
+        }
+
         @Volatile private var instance: AppDatabase? = null
 
         fun getInstance(context: Context): AppDatabase {
@@ -65,7 +81,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     DB_NAME
                 )
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     .fallbackToDestructiveMigration()
                     .build()
                     .also { instance = it }

@@ -1,4 +1,4 @@
-# GagMate — 架构梳理与问题清单（2026-07-28 更新版）
+# GagMate — 架构梳理与问题清单（2026-07-29 更新版）
 
 > **状态说明**：本文档是对 `app/src/main/**`（54 个 Kotlin 文件，约 7,000 LOC）的重新梳理。
 > 早先（03:06）的初版 Code Review 报了一个「启动即崩溃」的致命 bug，但**过去 24 小时内代码已被修改**，
@@ -204,6 +204,29 @@
 - **Manifest 兜底**：`AndroidManifest.xml` 的 `MainActivity` 增加 `android:screenOrientation="portrait"`，保证首帧与任何未覆盖状态都默认竖屏（运行时图表设置 LANDSCAPE 会覆盖它）。
 - **删除各页面各自的方向逻辑**：`LiveCurveScreen` / `ShotChartFullScreen` / `ProfileDetailScreen` 中的 `requestedOrientation` 代码块及相关 import（`ActivityInfo` / `LocalContext` / `ComponentActivity`）全部移除，避免重复与互相干扰。
 - 全部通过 `./gradlew :app:assembleDebug --offline` 编译验证（BUILD SUCCESSFUL）。
+
+---
+
+## 0i. 本轮改动（2026-07-29：profile 详情仍显示乱码/零值 → DB 中 phases_json 是旧版 WS 解码器留下的垃圾）
+
+用户抓图反馈：**profile 详情页显示阶段名乱码、Target 0.0 bar in 0s、曲线空白**；同时询问首页「当前曲线」图表含义。
+
+### 数据库检查结果（adb pull `/data/data/com.gagmate.app/databases/gagmate.db`）
+- `profiles.phases_json` 对 `SYNCED` profile 几乎全是损坏数据：`name` 字段里存的是原始 protobuf 字节（如 `\u0015\u0000\u0000…`），`target=0.0`、`time=0.1`、`variation="FLAT"`。这与截图完全一致。
+- `turbo shot`、`CORE Turbo` 等少数 profile 的 `phases_json = "[]"`（空）。
+- 首页「当前曲线」之所以能画出 `turbo shot` 的曲线，是因为仪表盘走的是**联网实时** `fetchProfilePhases`（REST/WS），不依赖本地 `phases_json`；而 profile 详情在断网/取数失败时会回退到本地 `phases_json`，于是把垃圾展示了出来。
+
+### 根因
+1. **旧版 WS 相位解码器把 protobuf 字节写进了 `name` 字段**，且 target/time 全零。当前代码的 WS→Room 收集器虽已加 `allZero` 丢弃逻辑，但**旧数据仍留在 DB 里**。
+2. **REST 真实曲线回写被错误地卡在 `machineSession.isConnected()`**：`SyncManager.syncProfiles` 在 app 启动 500 ms 后执行，此时 WebSocket 通常还在握手，`isConnected()` 为 false，导致 REST `GET /api/profile/{id}` 取数分支被跳过，垃圾永远不会被覆盖。
+
+### 修复
+- **DB 迁移 `MIGRATION_4_5`**：将所有 `SYNCED` profile 的 `phases_json` 重置为 `"[]"`，一次性清掉旧垃圾；用户编辑过的 profile（MODIFIED/CONFLICT/LOCAL_ONLY）保留不动。
+- **去掉 REST 回写的 WS 连接前置判断**：REST 与 WebSocket 握手无关（同一 Retrofit/baseUrl），不应等 WS 就绪。同时把「是否已真实」判断改为：空、全零、或全部 FLAT/LINEAR 都重新取 REST 详情。
+- 这样 app 升级后首次启动（或下次同步）就会用 REST 把真实 `EASE_*` 曲线写回本地，离线打开 profile 详情也能看到正确数据和缓动曲线。
+
+### 关于首页「当前曲线」图表
+首页仪表盘里的「当前曲线」是**当前选中的 profile 的设定曲线**（目标压力/泵流速随时间变化的预设曲线），不是历史萃取记录。它来自 `fetchProfilePhases(selectedProfileId, selectedProfileName)`：优先 REST 详情（带真实 curve 类型），叠加 WS 实时值，所以联网时能看到带 `EASE_*` 缓动的上升/保持/下降形状。
 
 ---
 
