@@ -558,7 +558,7 @@ Room 数据库, **版本 6**。`fallbackToDestructiveMigration` 仅作兜底，�
 |------|------|
 | `MIGRATION_3_4` | 归一化 `shots.timestamp`：历史行存在"秒 / 毫秒 / 毫秒又被 ×1000"三种混乱单位，迁移时统一 `UPDATE` 为规范的 **epoch 毫秒**。 |
 | `MIGRATION_4_5` | 清除旧版 WS 解码器写入的**损坏 phases_json**：将其 `UPDATE profiles SET phases_json = '[]' WHERE sync_status = 'SYNCED'`，使下次同步能重新取回真实 `EASE_*` 曲线。用户编辑过的 profile（非 SYNCED）不受影响。 |
-| `MIGRATION_5_6` | 为 `shot_records` 增加 `profile_id TEXT` 与 `embedded_phases_json TEXT`（默认 `''` / `'[]'`），把 shot 内嵌 profile 的**真实 curve 来源**持久化，供 `fetchProfilePhases` / `syncShots` 离线使用（REST 详情端点在本机固件为 dead，WS `d_prof` 不携带 curve 类型）。 |
+| `MIGRATION_5_6` | 为 `shot_records` 增加 `profile_id TEXT`（**可空**，与 `ShotEntity.profileId: String?` 严格一致）与 `embedded_phases_json TEXT NOT NULL DEFAULT '[]'`，把 shot 内嵌 profile 的**真实 curve 来源**持久化，供 `fetchProfilePhases` / `syncShots` 离线使用（REST 详情端点在本机固件为 dead，WS `d_prof` 不携带 curve 类型）。⚠️ 教训：迁移 SQL 的可空性/默认值必须与 Entity 声明完全一致，否则 Room 迁移后 schema 校验抛 `Migration didn't properly handle: shot_records`，迁移事务回滚（DB 停留 v5、数据无损），此后**每个触库页面反复闪退**（首版误写 `profile_id NOT NULL DEFAULT ''` 导致历史页与日志导出页闪退）。 |
 
 ### 时间戳单位约定 (canonical = epoch ms)
 

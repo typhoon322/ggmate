@@ -80,11 +80,20 @@ abstract class AppDatabase : RoomDatabase() {
          * HTML) and WS `d_prof` carries no curve enum, so the only reliable place
          * to read real EASE_* curve strings is the profile embedded inside each
          * shot record. We add `profile_id` and `embedded_phases_json` columns to
-         * `shot_records` (both defaulted, so existing rows migrate cleanly).
+         * `shot_records`.
+         *
+         * IMPORTANT: column nullability MUST mirror [ShotEntity] exactly —
+         * `profileId` is `String?`, so `profile_id` must be a plain nullable
+         * TEXT. Declaring it NOT NULL here made Room's post-migration schema
+         * validation throw `Migration didn't properly handle: shot_records`,
+         * which crashed every screen touching the DB (the failed migration
+         * transaction rolls back, so the DB stays at v5 and re-fails on each
+         * open). `embedded_phases_json` maps to a non-null `String` and keeps
+         * NOT NULL DEFAULT '[]'.
          */
         private val MIGRATION_5_6 = object : Migration(5, 6) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL("ALTER TABLE shot_records ADD COLUMN profile_id TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE shot_records ADD COLUMN profile_id TEXT")
                 db.execSQL("ALTER TABLE shot_records ADD COLUMN embedded_phases_json TEXT NOT NULL DEFAULT '[]'")
             }
         }

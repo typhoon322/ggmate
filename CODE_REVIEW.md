@@ -250,6 +250,12 @@
 - `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**。
 - 复测：连机全量同步后，日志应出现 `syncShots: seeded N phases into profile 'X' from shot-embedded profile`；断网打开任意 profile 详情应显示相位 + `EASE_*` 缓动曲线（来自本地 `phases_json`）。
 
+### 热修（2026-07-29 下午）：MIGRATION_5_6 可空性不一致导致触库页面闪退
+- **症状**：萃取历史 tab、导出崩溃日志页一点开即闪退；仪表盘正常（走 WS，同步路径 catch 了异常）。
+- **根因**：首版 `MIGRATION_5_6` 把 `profile_id` 建成 `TEXT NOT NULL DEFAULT ''`，而 `ShotEntity.profileId` 声明为 `String?`（可空）。Room 迁移后 schema 校验失败，抛 `IllegalStateException: Migration didn't properly handle: shot_records`；迁移事务回滚（DB 停留 v5、数据无损），此后每次触库都重新失败 → 反复闪退。
+- **修复**：迁移 SQL 改为 `ALTER TABLE shot_records ADD COLUMN profile_id TEXT`（可空、无默认值），与 Entity 严格一致；`embedded_phases_json` 保持 `TEXT NOT NULL DEFAULT '[]'`（对应非空 `String`）。
+- **教训**：写 Room `Migration` 时，新增列的**可空性与默认值必须逐字对齐 Entity 声明**（`String?` → 可空 TEXT；非空 `String` → `NOT NULL DEFAULT`）。
+
 ---
 
 ## 1. 项目架构（整理）
