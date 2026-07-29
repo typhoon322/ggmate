@@ -21,6 +21,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.gagmate.app.data.repository.AppContainer
 import com.gagmate.app.BuildConfig
@@ -248,7 +249,14 @@ fun SettingsScreen(
                                         viewModel.setLanguage(context, lang.code)
                                     }
                                 },
-                                label = { Text(lang.displayName) },
+                                label = {
+                                    Text(
+                                        lang.displayName,
+                                        modifier = Modifier.fillMaxWidth(),
+                                        textAlign = TextAlign.Center,
+                                        maxLines = 1
+                                    )
+                                },
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -298,7 +306,8 @@ fun SettingsScreen(
                     ) {
                         Text(
                             text = "Crash Log",
-                            style = MaterialTheme.typography.bodyLarge
+                            style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.weight(1f).padding(end = 8.dp)
                         )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (viewModel.hasCrashLog()) {
@@ -329,7 +338,7 @@ fun SettingsScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Column {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
                             Text(
                                 text = stringResource(R.string.settings_network_log),
                                 style = MaterialTheme.typography.bodyLarge
@@ -391,7 +400,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
                             text = "WS Data Overlay",
                             style = MaterialTheme.typography.bodyLarge
@@ -402,6 +411,7 @@ fun SettingsScreen(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
+                    Spacer(Modifier.width(12.dp))
                     Switch(
                         checked = WsOverlayControl.enabled,
                         onCheckedChange = { WsOverlayControl.enabled = it }

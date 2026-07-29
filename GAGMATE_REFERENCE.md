@@ -136,8 +136,8 @@
 **功能**:
 - 萃取记录列表 (卡片式)
 - 卡片展开后显示 `ShotReplaySection` (回放曲线)
-- 导出 JSON / 删除 (三次确认)
-- 全屏图表 `ShotChartFullScreen` (触摸交叉线 + 数据提示)
+- 导出 JSON（**删除按钮已移除**——本地为主控板只读镜像，不提供本地删除）
+- 全屏图表 `ShotChartFullScreen`：顶部固定展示**时长 + 液量**；触摸交叉线的**数值卡片仅在手指按住时显示，松手 1 秒后隐藏**（`fingerCount` 计数 + `LaunchedEffect` 延时）
 
 ### 2.4 设置 — SettingsScreen
 
@@ -148,10 +148,10 @@
 - 连接配置 (主机/端口)
 - 连接测试
 - 手动同步 (Sync)
-- 语言切换
+- 语言切换（选项：`System` / `English` / `中文`，chip 文字居中）
 - Crash Log 导出/清除
 - 网络日志导出
-- WS Data Overlay 开关
+- WS Data Overlay 开关（文字列 `weight(1f)` 防止把 Switch 挤出屏幕，长描述自动换行）
 
 ---
 

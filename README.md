@@ -34,7 +34,7 @@
 - **Playback controls** — play/pause, draggable seekbar
 - **Speed adjustment** — 1x / 2x / 4x / 8x playback speed
 - **Export shot data** — export individual shot records as JSON for analysis
-- **Delete records** — remove from history
+- **Full-screen chart** — duration & volume pinned at the top; the value readout card appears while touching the chart and hides 1 s after the finger lifts
 
 ### Settings
 - **Connection configuration** — host/IP and port for your ggboard
@@ -183,7 +183,7 @@ MIT License
 - **播放控制** — 播放/暂停、可拖拽进度条
 - **速度调节** — 1x / 2x / 4x / 8x 倍速回放
 - **导出数据** — 将单次萃取记录导出为 JSON 用于分析
-- **删除记录** — 从历史中移除
+- **全屏图表** — 时长与液量固定展示在顶部；数值卡片仅在手指触摸图表时显示，松手 1 秒后自动隐藏
 
 ### 设置
 - **连接配置** — ggboard 的 IP 地址和端口

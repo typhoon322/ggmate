@@ -9,7 +9,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Coffee
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.OpenInFull
@@ -130,7 +129,6 @@ fun ShotHistoryScreen(
                                     expandedShotId = if (expandedShotId == shot.id) null else shot.id
                                 },
                                 onFullScreen = { onOpenChart(shot.id) },
-                                onDelete = { viewModel.deleteShot(shot.id) },
                                 onExport = {
                                     val json = viewModel.exportShotAsJson(shot)
                                     val sendIntent = Intent().apply {
@@ -172,11 +170,9 @@ private fun ShotHistoryCard(
     isExpanded: Boolean,
     onToggle: () -> Unit,
     onFullScreen: () -> Unit = {},
-    onDelete: () -> Unit,
     onExport: () -> Unit
 ) {
     val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
-    val showDeleteConfirm = remember { mutableStateOf(false) }
 
     Card(
         onClick = onToggle,
@@ -223,36 +219,7 @@ private fun ShotHistoryCard(
                         Icon(Icons.Default.OpenInFull, contentDescription = "Full screen chart",
                             tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                     }
-                    IconButton(onClick = {
-                        // Show confirmation dialog
-                        showDeleteConfirm.value = true
-                    }, modifier = Modifier.size(32.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = stringResource(R.string.history_delete),
-                            tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
-                    }
                 }
-            }
-
-            // Delete confirmation dialog
-            if (showDeleteConfirm.value) {
-                AlertDialog(
-                    onDismissRequest = { showDeleteConfirm.value = false },
-                    title = { Text(stringResource(R.string.history_delete)) },
-                    text = { Text("Delete this shot record permanently?") },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            showDeleteConfirm.value = false
-                            onDelete()
-                        }) {
-                            Text("Delete", color = MaterialTheme.colorScheme.error)
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showDeleteConfirm.value = false }) {
-                            Text(stringResource(R.string.profiles_cancel))
-                        }
-                    }
-                )
             }
 
             // Expanded replay section

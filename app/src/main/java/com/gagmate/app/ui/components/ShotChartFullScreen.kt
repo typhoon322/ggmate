@@ -26,6 +26,7 @@ import com.gagmate.app.R
 import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.model.ShotDataPoint
 import com.gagmate.app.data.repository.AppContainer
+import kotlinx.coroutines.delay
 import kotlin.math.abs
 
 private val PRESSURE_COLOR = Color(0xFF2196F3)
@@ -82,6 +83,19 @@ fun ShotChartFullScreen(
         var touchedTime by remember { mutableStateOf(totalTime) }
         var plotSize by remember { mutableStateOf(IntSize.Zero) }
 
+        // Readout card visibility: shown while a finger is on the plot,
+        // hidden 1 s after the last finger lifts.
+        var fingerCount by remember { mutableStateOf(0) }
+        var showReadout by remember { mutableStateOf(false) }
+        LaunchedEffect(fingerCount) {
+            if (fingerCount > 0) {
+                showReadout = true
+            } else if (showReadout) {
+                delay(1000)
+                showReadout = false
+            }
+        }
+
         val visibleWindow: Float = totalTime / zoom
         val maxPan: Float = (totalTime - visibleWindow).coerceAtLeast(0f)
         LaunchedEffect(zoom, totalTime) {
@@ -111,14 +125,18 @@ fun ShotChartFullScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
-                if (dataPoints.isNotEmpty()) {
-                    Text(
-                        String.format("%.1fs", dataPoints.last().time),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(end = 8.dp)
-                    )
-                }
+                // Duration + volume summary, pinned at the top of the page.
+                val volume = shot?.volume ?: 0f
+                Text(
+                    text = buildString {
+                        append(String.format("%.1fs", totalTime))
+                        if (volume > 0f) append(String.format(" · %.0fml", volume))
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
                 IconButton(onClick = onClose, modifier = Modifier.size(28.dp)) {
                     Icon(Icons.Default.Close, contentDescription = stringResource(R.string.settings_back), modifier = Modifier.size(18.dp))
                 }
@@ -152,14 +170,23 @@ fun ShotChartFullScreen(
                                 .onSizeChanged { plotSize = it }
                                 .pointerInput(dataPoints, panOffset, visibleWindow, plotSize) {
                                     detectTapGestures(
-                                        onPress = { offset -> touchedTime = timeAtX(offset.x, plotSize.width.toFloat(), panOffset, visibleWindow) },
+                                        onPress = { offset ->
+                                            touchedTime = timeAtX(offset.x, plotSize.width.toFloat(), panOffset, visibleWindow)
+                                            fingerCount++
+                                            try { tryAwaitRelease() } finally { fingerCount = (fingerCount - 1).coerceAtLeast(0) }
+                                        },
                                         onTap = { offset -> touchedTime = timeAtX(offset.x, plotSize.width.toFloat(), panOffset, visibleWindow) }
                                     )
                                 }
                                 .pointerInput(dataPoints, panOffset, visibleWindow, plotSize) {
                                     detectDragGestures(
-                                        onDragStart = { offset -> touchedTime = timeAtX(offset.x, plotSize.width.toFloat(), panOffset, visibleWindow) },
-                                        onDrag = { change, _ -> touchedTime = timeAtX(change.position.x, plotSize.width.toFloat(), panOffset, visibleWindow) }
+                                        onDragStart = { offset ->
+                                            touchedTime = timeAtX(offset.x, plotSize.width.toFloat(), panOffset, visibleWindow)
+                                            fingerCount++
+                                        },
+                                        onDrag = { change, _ -> touchedTime = timeAtX(change.position.x, plotSize.width.toFloat(), panOffset, visibleWindow) },
+                                        onDragEnd = { fingerCount = (fingerCount - 1).coerceAtLeast(0) },
+                                        onDragCancel = { fingerCount = (fingerCount - 1).coerceAtLeast(0) }
                                     )
                                 }
                         ) {
@@ -193,7 +220,7 @@ fun ShotChartFullScreen(
                             }
 
                             val closest = dataPoints.minByOrNull { abs((it.time - touchedTime).toFloat()) }
-                            if (closest != null) {
+                            if (showReadout && closest != null) {
                                 Card(
                                     modifier = Modifier.align(Alignment.TopCenter).padding(top = 6.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.96f))

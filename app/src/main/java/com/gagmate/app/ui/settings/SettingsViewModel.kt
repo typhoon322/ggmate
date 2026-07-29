@@ -80,7 +80,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     val availableLanguages = listOf(
-        LocaleInfo("", "System Default"),
+        LocaleInfo("", "System"),
         LocaleInfo("en", "English"),
         LocaleInfo("zh", "中文")
     )
