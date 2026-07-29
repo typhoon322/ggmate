@@ -278,6 +278,13 @@
 - **镜像删除保留**：`SyncManager` 在「机器已删 profile 且机器列表非空」时仍调用 `localRepo.deleteProfile` 做单向镜像删除——这是同步一致性（本地须 == 主控板），不是用户操作，故保留。
 - `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅 `pendingUploadCount` 未使用告警，属历史遗留，非本次引入）。
 
+### §0m 本轮改动（2026-07-29 晚）：machine 未连接时 profile tab 不再发起同步
+用户要求：「机器未连接的时候，profile tab 点开就不用去 load 数据了」。
+- `ProfilesViewModel` 新增 `connectionState`（透传 `AppContainer.machineSession.connectionState`）；`loadProfiles()` 在 `!isConnected()` 时**直接 return**，不再调用 `syncFromMachine()`（即打开 tab / 点刷新都不会发起网络同步）。
+- 本地缓存曲线仍由 `init{}` 中的 `profilesFlow` 提供，未连接时列表照常展示本地数据，避免无意义的联网尝试与报错。
+- `ProfilesScreen` 收集 `connectionState`，非 `CONNECTED` 时在列表上方显示「未连接 · 仅显示本地缓存」提示条（新增双语 string `profiles_offline_hint`）。
+- `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅历史遗留告警，非本次引入）。
+
 ---
 
 ## 1. 项目架构（整理）

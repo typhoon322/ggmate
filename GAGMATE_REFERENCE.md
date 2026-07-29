@@ -115,7 +115,7 @@
 **ViewModel**: [`ProfilesViewModel.kt`](app/src/main/java/com/gagmate/app/ui/profiles/ProfilesViewModel.kt)
 
 **功能**:
-- 曲线列表 (从本地 Room DB 读取, 通过 REST 同步)
+- 曲线列表 (从本地 Room DB 读取, 通过 REST 同步)；**机器未连接时 `ProfilesViewModel.loadProfiles()` 直接跳过网络同步**, 仅展示本地缓存曲线并在顶部显示「未连接 · 仅显示本地缓存」提示条 (见 `ConnectionState`)
 - 曲线详情弹窗 `ProfileDetailDialog` (含 `BrewChartView` 图表预览 + `PhaseCard` 列)
 - 曲线编辑弹窗 `ProfileEditDialog` (编辑名称/作者/备注/各阶段参数)
 - 粘贴 JSON 导入 `PasteJsonDialog`

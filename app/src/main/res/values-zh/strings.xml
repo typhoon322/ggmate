@@ -72,6 +72,7 @@
     <string name="profiles_delete">删除</string>
     <string name="profiles_no_profiles">暂无曲线</string>
     <string name="profiles_import_hint">导入 JSON 文件或创建新曲线</string>
+    <string name="profiles_offline_hint">未连接机器 · 仅显示本地缓存</string>
     <string name="profiles_create_sample">创建示例曲线</string>
     <string name="profiles_edit">编辑</string>
     <string name="profiles_close">关闭</string>

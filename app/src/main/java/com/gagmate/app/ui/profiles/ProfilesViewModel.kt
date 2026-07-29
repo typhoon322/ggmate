@@ -6,6 +6,7 @@ import androidx.lifecycle.AndroidViewModel
 import android.app.Application
 import androidx.lifecycle.viewModelScope
 import com.gagmate.app.data.local.entity.ProfileEntity
+import com.gagmate.app.data.session.ConnectionState
 import com.gagmate.app.R
 import com.gagmate.app.data.repository.AppContainer
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,6 +45,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
     private val _syncMessage = MutableStateFlow<String?>(null)
     val syncMessage: StateFlow<String?> = _syncMessage.asStateFlow()
 
+    /** Mirrors the machine WebSocket connection state so the UI can show an offline hint. */
+    val connectionState: StateFlow<ConnectionState> = AppContainer.machineSession.connectionState
+
     init {
         viewModelScope.launch {
             profileRepo.profilesFlow.collectLatest { list ->
@@ -63,6 +67,11 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         // Local data already flows via profilesFlow in init{} and is shown immediately.
         // The network sync runs in the background and only updates the UI when new
         // data actually arrives (see _syncMessage), so the list never blocks on loading.
+        // Skip the network sync entirely when the machine is not connected — there is
+        // nothing to fetch, so we just present the locally cached profiles.
+        if (!AppContainer.machineSession.isConnected()) {
+            return
+        }
         _isSyncing.value = true
         viewModelScope.launch {
             val result = profileRepo.syncFromMachine()

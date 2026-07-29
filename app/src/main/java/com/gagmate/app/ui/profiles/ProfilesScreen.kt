@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.local.entity.SyncStatus
+import com.gagmate.app.data.session.ConnectionState
 import androidx.compose.runtime.collectAsState
 import com.gagmate.app.ui.components.PageHeader
 import com.gagmate.app.ui.components.PhaseIndicator
@@ -47,6 +48,7 @@ fun ProfilesScreen(
 ) {
     val profiles by viewModel.profiles.collectAsState()
     val isSyncing by viewModel.isSyncing.collectAsState()
+    val connectionState by viewModel.connectionState.collectAsState()
     val error by viewModel.error.collectAsState()
     val pendingUploadCount by viewModel.pendingUploadCount.collectAsState()
     val syncMessage by viewModel.syncMessage.collectAsState()
@@ -120,6 +122,25 @@ fun ProfilesScreen(
                     }
                 }
             )
+
+            // Offline hint: when the machine isn't connected we skip syncing and
+            // only show locally cached profiles.
+            if (connectionState != ConnectionState.CONNECTED) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 1.dp
+                ) {
+                    Text(
+                        text = stringResource(R.string.profiles_offline_hint),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
 
             when {
                 profiles.isEmpty() && !isSyncing -> {

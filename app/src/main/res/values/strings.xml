@@ -72,6 +72,7 @@
     <string name="profiles_delete">Delete</string>
     <string name="profiles_no_profiles">No Profiles</string>
     <string name="profiles_import_hint">Import a profile from JSON or create one</string>
+    <string name="profiles_offline_hint">Not connected — showing cached profiles only</string>
     <string name="profiles_create_sample">Create Sample Profile</string>
     <string name="profiles_edit">Edit</string>
     <string name="profiles_close">Close</string>
