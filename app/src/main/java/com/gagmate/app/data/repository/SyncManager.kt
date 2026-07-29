@@ -17,10 +17,13 @@ import kotlinx.coroutines.*
 /**
  * Coordinates synchronisation between the ggboard machine API and the local Room database.
  *
- * Sync strategy (profiles):
- *   - Machine is default source of truth for unmodified local profiles.
- *   - Locally-modified profiles are kept and later uploaded (overwrite machine).
- *   - When both sides changed → CONFLICT status, user resolves via UI.
+ * Sync strategy — the Gaggiuino main board is the SINGLE source of truth.
+ * The local DB is a one-way, read-only mirror of the board:
+ *   - Machine profiles unconditionally overwrite local rows (any local
+ *     MODIFIED/CONFLICT state is discarded and reset to the machine version).
+ *   - Local rows whose machine profile no longer exists are deleted.
+ *   - Pushing local edits to the machine is DISABLED for now
+ *     ([uploadPendingProfiles] is a no-op; see ProfileRepository).
  *
  * Shot history & machine settings: machine is always source of truth.
  */
@@ -29,6 +32,12 @@ class SyncManager(
     private val machineRepo: MachineRepository
 ) {
     private val gson = Gson()
+
+    companion object {
+        /** Shown when any local→machine profile push is attempted. */
+        const val PUSH_DISABLED_MESSAGE =
+            "Profile push is disabled: the machine is the single source of truth"
+    }
 
     data class SyncResult(
         val profilesAdded: Int = 0,
@@ -73,27 +82,13 @@ class SyncManager(
     }
 
     /**
-     * Upload only locally-modified / local-only profiles.
-     * Used for the "Upload pending" button.
+     * DISABLED — pushing local profile data to the machine is not supported
+     * for now: the Gaggiuino main board is the single source of truth and the
+     * local DB is a read-only mirror. Kept as a no-op so existing UI wiring
+     * (the "Upload pending" button) degrades gracefully.
      */
     suspend fun uploadPendingProfiles(): SyncResult {
-        var profilesUploaded = 0
-        val errors = mutableListOf<String>()
-        val pending = localRepo.getPendingUploads()
-        for (entity in pending) {
-            try {
-                val profile = entity.toShotProfile()
-                machineRepo.uploadProfile(profile).onSuccess {
-                    localRepo.markProfileSynced(entity.id, profile.profileId ?: entity.machineProfileId)
-                }.onFailure {
-                    throw it
-                }
-                profilesUploaded++
-            } catch (e: Exception) {
-                errors.add("Upload '${entity.name}': ${e.message ?: e}")
-            }
-        }
-        return SyncResult(profilesUploaded = profilesUploaded, errors = errors.toList())
+        return SyncResult(errors = listOf(PUSH_DISABLED_MESSAGE))
     }
 
     // ── Internals ─────────────────────────────────────────────────────
@@ -101,9 +96,6 @@ class SyncManager(
     private suspend fun syncProfiles(): SyncResult {
         var profilesAdded = 0
         var profilesUpdated = 0
-        var profilesConflicted = 0
-        var profilesUploaded = 0
-        val errors = mutableListOf<String>()
 
         val machineProfiles = try {
             machineRepo.getProfiles().getOrDefault(emptyList())
@@ -114,15 +106,15 @@ class SyncManager(
             Log.d("GagMateProfile", "fullSync: machine returned ${machineProfiles.size} profiles: " +
                 machineProfiles.joinToString { "[id=${it.id} name='${it.name}']" })
 
-        val localProfiles = localRepo.getAllProfiles().associateBy { it.machineProfileId }
+        val allLocal = localRepo.getAllProfiles()
+        val localProfiles = allLocal.associateBy { it.machineProfileId }
 
         for (mp in machineProfiles) {
             val mId = mp.id.toString()
             val local = localProfiles[mId]
 
-            val saved: ProfileEntity
             if (local == null) {
-                saved = ProfileEntity(
+                val saved = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
@@ -138,48 +130,46 @@ class SyncManager(
                 localRepo.saveProfile(saved)
                 profilesAdded++
             } else {
-                saved = when (local.syncStatus) {
-                    SyncStatus.SYNCED -> {
-                        // Refresh metadata only; phasesJson is filled below
-                        // (we must NOT clobber in-flight/already-synced phases).
-                        local.copy(
-                            name = mp.name,
-                            machineProfileId = mId,
-                            syncStatus = SyncStatus.SYNCED,
-                            machineUpdatedAt = System.currentTimeMillis()
-                        ).also { profilesUpdated++ }
-                    }
-                    SyncStatus.LOCAL_ONLY -> local
-                    SyncStatus.MODIFIED, SyncStatus.CONFLICT -> {
-                        // User's local edits win — never overwrite their phases.
-                        local.copy(syncStatus = SyncStatus.CONFLICT).also { profilesConflicted++ }
-                    }
-                }
+                // Machine is the single source of truth: unconditionally mirror
+                // the machine version. Any local MODIFIED/CONFLICT state is
+                // discarded — its phasesJson is wiped so the shot-embedded
+                // seeder ([seedProfilePhasesFromShots]) refills it with the
+                // machine's real recipe on this same sync pass.
+                val wasLocallyEdited = local.syncStatus == SyncStatus.MODIFIED ||
+                    local.syncStatus == SyncStatus.CONFLICT
+                if (wasLocallyEdited && BuildConfig.DEBUG)
+                    Log.d("GagMateProfile", "fullSync: DISCARDED local edits for id=$mId name='${mp.name}' (machine is authoritative)")
+                val saved = local.copy(
+                    name = mp.name,
+                    machineProfileId = mId,
+                    phasesJson = if (wasLocallyEdited) "[]" else local.phasesJson,
+                    syncStatus = SyncStatus.SYNCED,
+                    machineUpdatedAt = System.currentTimeMillis()
+                )
                 localRepo.saveProfile(saved)
+                profilesUpdated++
             }
         }
 
-        val localOnly = localRepo.getPendingUploads()
-        for (entity in localOnly) {
-            if (entity.syncStatus == SyncStatus.LOCAL_ONLY || entity.syncStatus == SyncStatus.MODIFIED) {
-                try {
-                    val profile = entity.toShotProfile()
-                    machineRepo.uploadProfile(profile).onSuccess {
-                        localRepo.markProfileSynced(entity.id, profile.profileId ?: entity.machineProfileId)
-                        profilesUploaded++
-                    }.onFailure { throw it }
-                } catch (e: Exception) {
-                    errors.add("Upload '${entity.name}': ${e.message ?: e}")
-                }
+        // Mirror deletions: a local machine-mirror row whose machine profile no
+        // longer exists must go too. Guard on a non-empty machine list so a
+        // flaky/empty response can never wipe the whole mirror.
+        if (machineProfiles.isNotEmpty()) {
+            val machineIds = machineProfiles.map { it.id.toString() }.toSet()
+            allLocal.filter {
+                it.machineProfileId != null &&
+                    it.syncStatus != SyncStatus.LOCAL_ONLY &&
+                    it.machineProfileId !in machineIds
+            }.forEach { stale ->
+                if (BuildConfig.DEBUG)
+                    Log.d("GagMateProfile", "fullSync: DELETED stale local profile id=${stale.id} name='${stale.name}' (gone from machine)")
+                localRepo.deleteProfile(stale.id)
             }
         }
 
         return SyncResult(
             profilesAdded = profilesAdded,
-            profilesUpdated = profilesUpdated,
-            profilesConflicted = profilesConflicted,
-            profilesUploaded = profilesUploaded,
-            errors = errors
+            profilesUpdated = profilesUpdated
         )
     }
 
@@ -270,35 +260,29 @@ class SyncManager(
     }
 
     /**
-     * Write real (EASE_*) phase definitions into any SYNCED profile whose
-     * stored phases are NOT authoritative (empty or all-zero). Source is the
-     * shot-embedded profile — the only reliable curve source on this firmware
-     * (REST detail is dead, WS d_prof has no curve enum).
+     * Mirror real (EASE_*) phase definitions into every SYNCED profile from the
+     * MOST RECENT matching shot's embedded profile — the only reliable curve
+     * source on this firmware (REST detail is dead, WS d_prof has no curve enum).
      *
-     * Write-guard hierarchy (must never conflict with other write paths):
-     *   - Non-SYNCED (MODIFIED/CONFLICT/LOCAL_ONLY) → never touched here.
-     *   - SYNCED with meaningful phases (any non-zero target/time) → never
-     *     overwritten, even if all curves are LINEAR/FLAT. A user edit pushed
-     *     via pushAndSaveIfConfirmed() lands as SYNCED and may legitimately be
-     *     all-LINEAR; a stale shot from before the edit must NOT clobber it.
-     *   - Only empty / all-zero phasesJson (post-MIGRATION_4_5 wipe, or fresh
-     *     rows created by syncProfiles with "[]") is eligible for seeding.
+     * The machine is the single source of truth and local edits are never
+     * pushed, so there is nothing to protect: whenever the latest shot-embedded
+     * phases differ from what is stored, the stored copy is overwritten. This
+     * keeps the local mirror converging to the board's recipe (e.g. after the
+     * user edits a profile on the machine's own web UI and pulls a new shot).
+     * Identical phases are skipped to avoid write churn. LOCAL_ONLY rows
+     * (imports/samples, not machine mirrors) are not touched.
      */
     private suspend fun seedProfilePhasesFromShots(latestPhasesByName: Map<String, Pair<Long, List<BrewPhase>>>) {
         if (latestPhasesByName.isEmpty()) return
-        val type = object : TypeToken<List<BrewPhase>>() {}.type
         localRepo.getAllProfiles().forEach { profile ->
             if (profile.syncStatus != SyncStatus.SYNCED) return@forEach
-            val notAuthoritative = runCatching {
-                val list = gson.fromJson<List<BrewPhase>>(profile.phasesJson, type) ?: emptyList()
-                list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f }
-            }.getOrDefault(true)
-            if (!notAuthoritative) return@forEach
             val match = latestPhasesByName[profile.name] ?: return@forEach
             if (match.second.isEmpty()) return@forEach
+            val newJson = gson.toJson(match.second)
+            if (newJson == profile.phasesJson) return@forEach
             localRepo.saveProfile(
                 profile.copy(
-                    phasesJson = gson.toJson(match.second),
+                    phasesJson = newJson,
                     localUpdatedAt = System.currentTimeMillis()
                 )
             )

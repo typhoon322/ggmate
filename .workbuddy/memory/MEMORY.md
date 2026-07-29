@@ -7,6 +7,7 @@
 - 根目录 `AGENTS.md` = 项目根级协作规则（人可读，非 WorkBuddy 自动读取）。
 
 ## 架构要点速记
+- **数据权威原则（用户拍板 2026-07-29）**：Gaggiuino 主控板 = 唯一权威，本地 DB 是单向只读镜像；本地修改推送暂不做（`ProfileDetailScreen.EDIT_ENABLED=false` 隐藏编辑入口，push 方法全 no-op）。曲线相位真实来源 = shot 内嵌 `profile.phases`（REST `/api/profile/{id}` dead、WS d_prof 无 curve 枚举）。Room 已到 v6（`shot_records.profile_id` 可空 + `embedded_phases_json`）。
 - WS 全局单例 = `MachineSessionManager`，自带指数退避重连（连失败 6 次后转 ERROR）。
 - 曲线数据缓冲在 `ShotRepository.start(scope)`（AppContainer.appScope，进程级），不在 ViewModel，避免离开页面冻结。
 - 萃取只能由机器触发，仪表盘只显示状态；`brewActive` 上升沿自动跳转 `livecurve`。

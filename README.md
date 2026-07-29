@@ -24,7 +24,7 @@
 - **List & manage profiles** — view all saved profiles from your machine
 - **Import profiles** — from JSON file (system file picker) or paste raw JSON directly
 - **Export profiles** — share as JSON via system share sheet
-- **Edit profiles** — modify profile name, author, notes, and individual phase parameters (target, time, add/remove phases)
+- **Edit profiles (temporarily unavailable)** — the Gaggiuino main board is the single source of truth; pushing local edits is not supported for now and the edit entry is hidden. The app mirrors the board's profile data (edit recipes on the machine's own WebUI; the app follows after sync)
 - **Delete profiles** — remove from machine
 - **Sample profile** — one-tap test profile generation
 
@@ -173,7 +173,7 @@ MIT License
 - **列表管理** — 查看机器上所有保存的曲线
 - **导入曲线** — 从 JSON 文件导入（系统文件选择器）或直接粘贴 JSON 文本
 - **导出曲线** — 通过系统分享导出为 JSON
-- **编辑曲线** — 修改名称、作者、说明（Notes），编辑各阶段参数（目标值、时间、新增/删除阶段）
+- **编辑曲线（暂不可用）** — 以 Gaggiuino 主控板数据为唯一权威，本地修改推送暂不支持，编辑入口已隐藏；App 内曲线数据与主控板保持一致（如需改配方请在机器自带 WebUI 上修改，App 同步后自动跟随）
 - **删除曲线** — 从机器上移除
 - **示例曲线** — 一键生成经典浓缩曲线
 

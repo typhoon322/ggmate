@@ -385,7 +385,7 @@ WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 p
 - `sensorRepo: SensorRepository` — 传感器数据 (订阅 WS)
 - `shotRepo: ShotRepository` — 实时萃取数据
 - `profileRepo: ProfileRepository` — 曲线管理
-- `syncManager: SyncManager` — 双向同步
+- `syncManager: SyncManager` — 单向同步（机器 → 本地镜像）
 
 ### 6.2 LocalDataRepository
 
@@ -419,6 +419,7 @@ REST 调用封装:
 - `profilesFlow` — 观察本地所有曲线
 - 订阅 `session.profileDataReceived` 仅作**日志诊断**：WS `d_prof` 的 curve 类型恒为 `FLAT`/`乱码`，且 REST 详情端点 dead，故 phase 的**持久化已改由 `SyncManager.syncShots` 从 shot 内嵌 profile 完成**（见 §6.7）。本收集器**不再写库**，以免把不可靠的 WS 相位覆盖掉 shot 来源的真实 `EASE_*` 曲线。
 - `exportAsJson()` — 导出为 JSON
+- **编辑推送已停用**：`pushAndSaveIfConfirmed()` / `saveEditedProfile()` 均为 no-op（返回 `SyncManager.PUSH_DISABLED_MESSAGE`，**本地和机器都不写**）——主控板为唯一权威，本地修改推送暂不支持。详情页编辑入口由 `ProfileDetailScreen` 顶部 `EDIT_ENABLED = false` 隐藏；编辑 UI 代码保留，未来恢复推送时置回 `true` 即可。
 
 ### 6.5 SensorRepository
 
@@ -442,13 +443,19 @@ REST 调用封装:
 
 **文件**: [`SyncManager.kt`](app/src/main/java/com/gagmate/app/data/repository/SyncManager.kt)
 
-- `fullSync()` — 全量同步
-- `syncProfiles()` — 同步曲线列表（元数据 + 新建/匹配本地行）。**不再**在同步时发 WS `g_prof`，也**不再**调用 dead 的 REST `GET /api/profile/{id}` 去填充相位（见 §6.3：该端点在本机固件返回 SPA HTML）。profile 的相位/曲线来源完全交给 `syncShots()`。
+> **同步原则：Gaggiuino 主控板是唯一权威（single source of truth），本地 DB 是只读单向镜像。本地修改推送暂不支持**（`uploadPendingProfiles()` 为 no-op，`ProfileRepository` 的编辑推送方法已停用，详情页编辑入口由 `EDIT_ENABLED=false` 隐藏）。
+
+- `fullSync()` — 全量同步（单向：机器 → 本地）
+- `syncProfiles()` — 同步曲线列表，**机器数据无条件覆盖本地**：
+  - 本地行一律镜像机器版本并置为 `SYNCED`；旧的 `MODIFIED`/`CONFLICT` 状态被**直接丢弃**（其 `phasesJson` 清为 `[]`，同一轮 `syncShots()` 会用 shot 内嵌相位重新填充为机器真实配方）；不再有冲突/上传分支。
+  - **镜像删除**：本地存在但机器列表中已不存在的机器镜像行（`machineProfileId` 非空且非 `LOCAL_ONLY`）会被删除；仅当机器列表**非空**时执行，防止异常空响应清空整个镜像。
+  - **不再**在同步时发 WS `g_prof`，也**不再**调用 dead 的 REST `GET /api/profile/{id}` 去填充相位（见 §6.3：该端点在本机固件返回 SPA HTML）。profile 的相位/曲线来源完全交给 `syncShots()`。
+- `uploadPendingProfiles()` — **已停用（no-op）**，返回 `PUSH_DISABLED_MESSAGE` 错误说明；保留方法仅为让"上传待同步"按钮优雅降级。
 - `syncShots()` — 同步萃取记录 (REST → 本地 DB)，并**顺带完成 profile 相位的落库**：
   - 每条拉取的 shot 把其内嵌 `profile`（`EmbeddedProfile.phases`，含真实 `EASE_*` curve 字符串）写入 `ShotEntity.embeddedPhasesJson`（`ShotRecordApi.toShotRecord` 捕获 `profile.id` + `profile.phases`，时间戳统一归一化为 epoch 毫秒）；
   - **v5→v6 兼容回填**：迁移前同步的旧 shot 行 `embedded_phases_json='[]'` 且默认不会被重复拉取——若仍有 `SYNCED` profile 缺可用相位（`anyProfileNeedsSeeding()`），会**重新拉取这些空相位旧行**并 REPLACE upsert 回填；一旦全部 profile 已 seed，此回填自动停止（自限流）；
   - 「最近一条」判定在**落库之后**扫描全部本地 shot 行，用统一的归一化毫秒时间戳比较，避免 API 原始秒 vs 本地毫秒错序；
-  - **seed 写库守卫**（防写路径冲突）：仅当 `SYNCED` profile 的 `phasesJson` **非权威**（为空或全零 target/time）才写入；含有意义数值的相位**即使全是 LINEAR/FLAT 也不覆盖**——用户经 `pushAndSaveIfConfirmed` 推送确认后的编辑落库为 `SYNCED`，可能合法地全 LINEAR，不能被旧 shot 的旧配方擦掉。非 `SYNCED`（MODIFIED/CONFLICT/LOCAL_ONLY）永不触碰。
+  - **seed 规则（机器权威版）**：对每个 `SYNCED` profile，取「按 name 匹配的最新一条 shot」的内嵌相位，**只要与库内 `phasesJson` 不同即覆盖**（本地编辑已停用，无需保护；相同则跳过避免写抖动）。这保证本地镜像持续收敛到主控板配方——例如用户在机器自带 webui 改配方后拉一杯新 shot，下次同步即更新。`LOCAL_ONLY`（导入/示例，非机器镜像）不触碰。
   - 这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。
 - 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，把 WS `g_prof` 的 `FLAT` 实时值叠加到 shot 来源的 curve 类型上（按 phase 序）。**离线时详情/图表直接读本地 `phasesJson`**——该字段现在由 `syncShots` 写入真实 `EASE_*` curve（见上文），因此离线也能呈现缓动曲线，不依赖联网叠加。
 
@@ -684,6 +691,6 @@ MainActivity.onCreate()
 3. **Phase 名缺失** (已修复): `decodePhaseInfo` 返回 null 当 phase 无 field 6 (name), 导致无名称 phase 被丢弃
 4. **Phase end 值** (已修复): 当 segment field 2 无 float 时, 改用 phase field 3 作为备选
 5. **历史数据列格式**: `ShotRecordApi.parseDatapoints()` 将 service 端整数除以 10 (时间/压力/流量)
-6. **Phase 编辑**: 编辑对话框已实现但保存到机器的上传链路未完全接入
+6. **Phase 编辑（已停用）**: 主控板为唯一权威、本地修改推送暂不支持——编辑入口由 `ProfileDetailScreen.EDIT_ENABLED = false` 隐藏，`pushAndSaveIfConfirmed` / `saveEditedProfile` / `uploadPendingProfiles` 均为 no-op。编辑 UI 代码保留，未来恢复推送时翻回开关即可
 7. **Shot 时间戳 double ×1000** (已修复): `toShotRecord()` 曾对已是毫秒的值再 ×1000, 现统一经 `TimeUtils.normalizeShotTimestamp()` 归一化 + `MIGRATION_3_4` 修复存量数据 (详见 §9)
 

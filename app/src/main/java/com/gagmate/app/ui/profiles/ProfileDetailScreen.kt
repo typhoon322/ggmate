@@ -41,13 +41,16 @@ import com.google.gson.Gson
 import kotlinx.coroutines.launch
 
 /**
- * Standalone profile detail page.
+ * Standalone profile detail page (read-only for now).
  *
- * On entering edit mode the edit controls are shown directly under the chart
- * (no dialog). Phase/target edits update the chart live. Pressing "Save" pushes
- * the profile to the machine; only after the machine confirms (HTTP 200) is the
- * change written to the local DB. "Cancel" discards everything.
+ * The Gaggiuino main board is the single source of truth and local edits are
+ * NOT pushed to the machine, so profile editing is disabled: [EDIT_ENABLED]
+ * hides the edit entry point and the repository-side push methods are no-ops.
+ * The edit-mode code below is kept intact for when push support returns —
+ * flipping [EDIT_ENABLED] back to true restores the full flow (edit controls
+ * under the chart, live chart updates, save-after-machine-confirms).
  */
+private const val EDIT_ENABLED = false
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileDetailScreen(
@@ -199,7 +202,7 @@ private fun ProfileDetailContent(
                         Text(stringResource(R.string.profiles_cancel))
                     }
                 }
-            } else {
+            } else if (EDIT_ENABLED) {
                 IconButton(onClick = {
                     // Start editing from the reliable REST phases if available.
                     editedPhases = (fetchedPhases.takeIf { it.isNotEmpty() } ?: phasesFromJson).toMutableList()

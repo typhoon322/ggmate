@@ -263,6 +263,13 @@
 3. **时间戳单位错序**：原实现对新拉 shot 用 API 原始 `timestamp`（可能是秒）、对本地行用归一化毫秒做「最近一条」比较。修复：改为**落库后统一扫描本地行**（时间戳均已由 `toShotRecord()` 归一化为毫秒）再比较。
 - 当前写 `ProfileEntity.phasesJson` 的路径只剩 3 条且互斥：① 用户编辑（MODIFIED/SYNCED-confirmed，seed 永不覆盖）；② `syncShots` seed（仅空/全零 SYNCED）；③ `MIGRATION_4_5` wipe（一次性）。WS 收集器只读、`fetchProfilePhases` 只做展示不落库。
 
+### §0k 设计更正（2026-07-29）：主控板为唯一权威，本地改为单向只读镜像
+用户明确决策：**以 Gaggiuino 主控板数据为准，本地修改推送暂不做，本地数据必须与主控板一致。** 上一节（加固版）为保护本地编辑设计的守卫随之简化：
+- `SyncManager.syncProfiles`：机器数据**无条件覆盖**本地（MODIFIED/CONFLICT 被丢弃、重置 SYNCED 并清 `phasesJson` 待同轮 `syncShots` 重新播种）；新增**镜像删除**（机器已删的 profile 本地同步删除，仅在机器列表非空时执行以防误清）；移除自动上传循环。
+- `seedProfilePhasesFromShots`：判据从「仅空/全零才写」放开为「**最新 shot 内嵌相位与库内不同即覆盖**」（无本地编辑需保护，本地持续收敛到主控板配方；相同跳过防写抖动）。
+- 推送路径全部停用：`uploadPendingProfiles()` / `pushAndSaveIfConfirmed()` / `saveEditedProfile()` 均为 no-op（返回 `SyncManager.PUSH_DISABLED_MESSAGE`，本地和机器都不写）；详情页编辑入口由 `ProfileDetailScreen.EDIT_ENABLED = false` 隐藏（编辑 UI 代码保留，恢复推送时翻回开关）。
+- 现在写 `phasesJson` 的路径只剩 2 条：① `syncShots` seed（机器权威，覆盖式）；② `MIGRATION_4_5` wipe（一次性）。
+
 ---
 
 ## 1. 项目架构（整理）

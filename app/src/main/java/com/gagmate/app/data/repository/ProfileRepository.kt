@@ -111,49 +111,22 @@ class ProfileRepository(
     /** Serialize a profile entity to JSON string. */
     fun exportAsJson(entity: ProfileEntity): String = gson.toJson(entity.toShotProfile())
 
-    // ── Edit ────────────────────────────────────────────────────
+    // ── Edit (DISABLED) ─────────────────────────────────────────
+    //
+    // The Gaggiuino main board is the SINGLE source of truth. Pushing local
+    // profile edits to the machine is not supported for now, and the local DB
+    // must stay a faithful read-only mirror of the board — so neither method
+    // below writes anything (locally or remotely). The edit UI entry point is
+    // hidden (ProfileDetailScreen.EDIT_ENABLED = false); these remain only so
+    // the wiring compiles and degrades gracefully if reached.
 
-    /**
-     * Push an edited profile to the machine first.
-     * Only after the machine confirms (HTTP 200 from POST /api/profile) do we
-     * persist the change to the local DB. If the push fails / is not acknowledged,
-     * nothing is written locally — the edit is simply discarded.
-     *
-     * Returns a [Result]: success means machine confirmed + local DB updated;
-     * failure means the machine rejected/never confirmed and local data is untouched.
-     */
-    suspend fun pushAndSaveIfConfirmed(entity: ProfileEntity): Result<Unit> {
-        return runCatching {
-            // 1) Push to machine. HTTP 200 = "machine accepted the change".
-            machineRepo.uploadProfile(entity.toShotProfile()).getOrThrow()
-            // 2) Only after confirmation: persist the full edited entity locally.
-            localRepo.saveProfile(entity.copy(
-                syncStatus = SyncStatus.SYNCED,
-                localUpdatedAt = System.currentTimeMillis(),
-                machineUpdatedAt = System.currentTimeMillis()
-            ))
-        }
-    }
+    /** DISABLED — machine is authoritative; local edits are neither pushed nor stored. */
+    suspend fun pushAndSaveIfConfirmed(@Suppress("UNUSED_PARAMETER") entity: ProfileEntity): Result<Unit> =
+        Result.failure(IllegalStateException(SyncManager.PUSH_DISABLED_MESSAGE))
 
-    /** Save an edited profile locally + auto-upload to machine. */
-    suspend fun saveEditedProfile(entity: ProfileEntity): String? {
-        val updated = entity.copy(
-            syncStatus = if (entity.syncStatus == SyncStatus.SYNCED) SyncStatus.MODIFIED else entity.syncStatus,
-            localUpdatedAt = System.currentTimeMillis()
-        )
-        localRepo.saveProfile(updated)
-
-        // Auto-upload (best-effort)
-        return try {
-            val profile = updated.toShotProfile()
-            machineRepo.uploadProfile(profile).onSuccess {
-                localRepo.markProfileSynced(updated.id, profile.profileId ?: updated.machineProfileId)
-            }.onFailure { throw it }
-            null // no error
-        } catch (e: Exception) {
-            "Saved locally (upload pending: ${e.message ?: "unknown"})"
-        }
-    }
+    /** DISABLED — machine is authoritative; local edits are neither pushed nor stored. */
+    suspend fun saveEditedProfile(@Suppress("UNUSED_PARAMETER") entity: ProfileEntity): String? =
+        SyncManager.PUSH_DISABLED_MESSAGE
 
     // ── Sample ─────────────────────────────────────────────────
 
