@@ -9,7 +9,6 @@ import androidx.compose.material.icons.filled.Coffee
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material3.*
@@ -32,7 +31,6 @@ fun ProfileCard(
     onClick: () -> Unit = {},
     onExport: (() -> Unit)? = null,
     onEdit: (() -> Unit)? = null,
-    onDelete: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     Card(
@@ -117,15 +115,6 @@ fun ProfileCard(
                         imageVector = Icons.Default.Download,
                         contentDescription = stringResource(R.string.profiles_export),
                         tint = MaterialTheme.colorScheme.primary
-                    )
-                }
-            }
-            if (onDelete != null) {
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = stringResource(R.string.profiles_delete),
-                        tint = MaterialTheme.colorScheme.error
                     )
                 }
             }

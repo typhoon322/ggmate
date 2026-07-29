@@ -270,6 +270,14 @@
 - 推送路径全部停用：`uploadPendingProfiles()` / `pushAndSaveIfConfirmed()` / `saveEditedProfile()` 均为 no-op（返回 `SyncManager.PUSH_DISABLED_MESSAGE`，本地和机器都不写）；详情页编辑入口由 `ProfileDetailScreen.EDIT_ENABLED = false` 隐藏（编辑 UI 代码保留，恢复推送时翻回开关）。
 - 现在写 `phasesJson` 的路径只剩 2 条：① `syncShots` seed（机器权威，覆盖式）；② `MIGRATION_4_5` wipe（一次性）。
 
+### §0l 本轮改动（2026-07-29 晚）：移除 profile 用户删除 + 确认只读
+
+用户确认：「profile 也不用删除了，也不需要修改」。
+- **删除用户删除入口**：`ProfilesScreen` 的 `onDelete` 调用、`ProfileCard` 的 `onDelete` 参数与删除图标、`ProfilesViewModel.deleteProfile()` 全部移除；连带移除 `ProfileRepository.deleteProfile()` / `MachineRepository.deleteProfile()` / `GgboardApi.deleteProfile()`（含 `DELETE /api/profile-select/{id}` 端点）。`SyncStatus` 等仅删除逻辑使用的 import 一并清理。
+- **确认只读**：profile 修改此前已由 `EDIT_ENABLED = false` 关闭（§0k），本轮回应用户「不需要修改」即确认该决策；编辑 UI 代码保留、推送 no-op 不变。
+- **镜像删除保留**：`SyncManager` 在「机器已删 profile 且机器列表非空」时仍调用 `localRepo.deleteProfile` 做单向镜像删除——这是同步一致性（本地须 == 主控板），不是用户操作，故保留。
+- `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅 `pendingUploadCount` 未使用告警，属历史遗留，非本次引入）。
+
 ---
 
 ## 1. 项目架构（整理）
@@ -348,7 +356,7 @@
 | 8 | 重连每次新建 OkHttpClient 泄漏 | ✅ **已修复** —— client 复用 |
 | 9 | `SettingsRepository.getConnectionUrl()` 返回硬编码且未使用 | ✅ **已移除** |
 | 10 | profile 导入换行解析 | 🟡 **部分修复** —— 主路径 `Regex("\\}\\s*\\{")` 正确；CRLF 兜底路径仍坏（低） |
-| 11 | `deleteProfile` 无意义 `coroutineScope` | ❌ 仍在（低） |
+| 11 | `deleteProfile` 无意义 `coroutineScope` | ✅ 已修复（§0l 已移除整个 deleteProfile 链路） |
 | 12 | 示例曲线逻辑重复两处 | ❌ 仍在（低） |
 | 13 | `importProfileFromJson` 未用 `use{}` 泄漏流 | ❌ 仍在（低） |
 | 14 | `fallbackToDestructiveMigration()` 上线风险 | ❌ 仍在（中/低，生产前必须加迁移） |
@@ -420,7 +428,7 @@
 **安全 · `usesCleartextTraffic="true"` 让 `network_security_config` 失效**
 `AndroidManifest.xml` 第 14 行 `android:usesCleartextTraffic="true"` 会**全局**放行明文，覆盖 `res/xml/network_security_config.xml` 里 `<base-config cleartextTrafficPermitted="false">` 的域名限定。局域网 ESP 设备需要 http，但应只在 `domain-config` 内放行，而不是全局。低危（LAN 咖啡机），但发布前应收紧。
 
-**其他低项（继承自初版）**：`deleteProfile` 无用 `coroutineScope`（#11）、示例曲线重复定义（#12）、`importProfileFromJson` 流未 `use{}`（#13）、`fallbackToDestructiveMigration()`（#14）、`ProfileDao` 硬编码字面量（#15）、死代码 `ProfilesResponse`/`ApiResponse`/`GaggiuinoV3Client`（#2/#16）、`HttpLoggingInterceptor.Level.BODY` + 全量 body 落盘应包在 `BuildConfig.DEBUG` 后（#18）。
+**其他低项（继承自初版）**：示例曲线重复定义（#12）、`importProfileFromJson` 流未 `use{}`（#13）、`fallbackToDestructiveMigration()`（#14）、`ProfileDao` 硬编码字面量（#15）、死代码 `ProfilesResponse`/`ApiResponse`/`GaggiuinoV3Client`（#2/#16）、`HttpLoggingInterceptor.Level.BODY` + 全量 body 落盘应包在 `BuildConfig.DEBUG` 后（#18）。
 
 **O8（低）· 同步结果丢弃 shots 计数**
 `SyncManager.fullSync()` 第 58 行 `profilesAdded += r.profilesAdded` 用的是 shots 结果的 `profilesAdded`（恒为 0），且返回的 `SyncResult` 根本不含 `shotsAdded` —— shot 同步数量被静默丢弃。

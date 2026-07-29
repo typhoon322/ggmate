@@ -32,9 +32,6 @@ interface GgboardApi {
     @POST("api/profile-select/{id}")
     suspend fun selectProfile(@Path("id") profileId: Int): Response<Map<String, Any>>
 
-    @DELETE("api/profile-select/{id}")
-    suspend fun deleteProfile(@Path("id") profileId: Int): Response<Map<String, Any>>
-
     @POST("api/profile")
     suspend fun uploadProfile(@Body profile: ShotProfile): Response<Map<String, Any>>
 

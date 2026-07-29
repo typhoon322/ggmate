@@ -18,7 +18,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.*
@@ -181,9 +180,6 @@ fun ProfilesScreen(
                                     context.startActivity(
                                         Intent.createChooser(sendIntent, "Export Profile")
                                     )
-                                },
-                                onDelete = {
-                                    viewModel.deleteProfile(profile.id)
                                 }
                             )
                         }

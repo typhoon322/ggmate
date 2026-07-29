@@ -409,7 +409,7 @@ REST 调用封装:
   2. 取 **WS `g_prof`→`d_prof` 实时值** (`session.requestProfilePhases(id, name)`, 按 name 关联, 带 3.5s 超时) — 但 curve 类型恒为 `FLAT`;
   3. 若 WS 与 curve 来源 phase 数一致 → **按序叠加 curve 类型**到 WS 值上 (图表呈现缓动); 否则回退 curve 来源; 再否则回退 WS.
   落库由 `SyncManager.syncShots` 完成 (见 §6.7).
-- `uploadProfile(profile)`, `deleteMachineProfile(id)`
+- `uploadProfile(profile)`（应用层已停用推送，见 §6.4 编辑推送 no-op）
 - `selectMachineProfile(id)`
 
 ### 6.4 ProfileRepository
@@ -420,6 +420,7 @@ REST 调用封装:
 - 订阅 `session.profileDataReceived` 仅作**日志诊断**：WS `d_prof` 的 curve 类型恒为 `FLAT`/`乱码`，且 REST 详情端点 dead，故 phase 的**持久化已改由 `SyncManager.syncShots` 从 shot 内嵌 profile 完成**（见 §6.7）。本收集器**不再写库**，以免把不可靠的 WS 相位覆盖掉 shot 来源的真实 `EASE_*` 曲线。
 - `exportAsJson()` — 导出为 JSON
 - **编辑推送已停用**：`pushAndSaveIfConfirmed()` / `saveEditedProfile()` 均为 no-op（返回 `SyncManager.PUSH_DISABLED_MESSAGE`，**本地和机器都不写**）——主控板为唯一权威，本地修改推送暂不支持。详情页编辑入口由 `ProfileDetailScreen` 顶部 `EDIT_ENABLED = false` 隐藏；编辑 UI 代码保留，未来恢复推送时置回 `true` 即可。
+- **用户删除已移除**：`ProfilesScreen` 的 `onDelete` 调用、`ProfileCard` 的 `onDelete` 参数与删除图标、`ProfilesViewModel.deleteProfile()` 已删除；连带移除 `ProfileRepository.deleteProfile()` / `MachineRepository.deleteProfile()` / `GgboardApi.deleteProfile()`（含 `DELETE /api/profile-select/{id}` 端点）。`SyncStatus` 等仅删除逻辑使用的 import 一并清理。唯一保留的删除是 `SyncManager` 的**镜像删除**——机器已删某 profile 且机器列表非空时，本地同步删除该 profile（`LocalDataRepository.deleteProfile`），以保证本地 DB 始终与主控板一致（非用户操作）。
 
 ### 6.5 SensorRepository
 

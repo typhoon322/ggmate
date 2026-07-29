@@ -84,13 +84,6 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun deleteProfile(profileId: String) {
-        viewModelScope.launch {
-            val entity = profileRepo.getProfileById(profileId) ?: return@launch
-            profileRepo.deleteProfile(profileId)
-        }
-    }
-
     // ── Import ──────────────────────────────────────────────────
 
     fun importProfileFromJson(context: Context, uri: Uri) {

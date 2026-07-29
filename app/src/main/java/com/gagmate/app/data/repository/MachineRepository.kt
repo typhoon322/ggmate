@@ -40,17 +40,6 @@ class MachineRepository(
         }
     }
 
-    /**
-     * DELETE /api/profile-select/{id} → delete a profile from the machine.
-     * Profile activation/selection now goes through WebSocket c_upd_act_prof_id.
-     */
-    suspend fun deleteProfile(profileId: Int): Result<Unit> = runCatching {
-        val response = api.deleteProfile(profileId)
-        if (!response.isSuccessful) {
-            throw Exception("HTTP ${response.code()}: ${response.errorBody()?.string()}")
-        }
-    }
-
     /** GET /api/shots/latest → returns [{lastShotId: "7"}]. */
     suspend fun getLatestShotId(): Result<String> = runCatching {
         val response = api.getLatestShotId()

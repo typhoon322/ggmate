@@ -25,7 +25,6 @@
 - **Import profiles** — from JSON file (system file picker) or paste raw JSON directly
 - **Export profiles** — share as JSON via system share sheet
 - **Edit profiles (temporarily unavailable)** — the Gaggiuino main board is the single source of truth; pushing local edits is not supported for now and the edit entry is hidden. The app mirrors the board's profile data (edit recipes on the machine's own WebUI; the app follows after sync)
-- **Delete profiles** — remove from machine
 - **Sample profile** — one-tap test profile generation
 
 ### Shot History
@@ -137,13 +136,13 @@ GagMate communicates with the standard ggboard REST API exposed by the Gagguino 
 | `/api/state` | GET | Current machine state |
 | `/api/profiles` | GET | List saved profiles |
 | `/api/profile` | GET/POST | Active profile / upload profile |
-| `/api/profile/{id}` | GET/DELETE | Get / delete specific profile — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4) |
+| `/api/profile/{id}` | GET | Get specific profile — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4)；应用层已不再调用 DELETE |
 | `/api/command` | POST | Send commands (flush, steam, setpoint) |
 | `/api/command/brew` | POST | Start brew |
 | `/api/command/stop` | POST | Stop brew |
 | `/api/command/prime` | POST | Prime pump |
 | `/api/shots` | GET | Shot history |
-| `/api/shots/{id}` | GET/DELETE | Shot detail / delete |
+| `/api/shots/{id}` | GET | Shot detail |
 | `/api/settings` | GET | Machine settings |
 | `/api/restart` | GET | Restart machine |
 
@@ -287,13 +286,13 @@ GagMate 与 Gagguino ESP32 固件暴露的标准 ggboard REST API 兼容：
 | `/api/state` | GET | 获取当前机器状态 |
 | `/api/profiles` | GET | 列出已保存曲线 |
 | `/api/profile` | GET/POST | 获取当前曲线 / 上传曲线 |
-| `/api/profile/{id}` | GET/DELETE | 获取/删除指定曲线 — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4) |
+| `/api/profile/{id}` | GET | 获取指定曲线 — ⚠️ 实测本机固件不支持该 GET 端点, 曲线「当前定义」改走 WebSocket `g_prof`→`d_prof` (见 GAGMATE_REFERENCE.md §3.4)；应用层已不再调用 DELETE |
 | `/api/command` | POST | 发送命令（flush/steam/setpoint） |
 | `/api/command/brew` | POST | 开始萃取 |
 | `/api/command/stop` | POST | 停止萃取 |
 | `/api/command/prime` | POST | 水泵注水 |
 | `/api/shots` | GET | 萃取历史列表 |
-| `/api/shots/{id}` | GET/DELETE | 萃取详情 / 删除 |
+| `/api/shots/{id}` | GET | 萃取详情 |
 | `/api/settings` | GET | 机器设置 |
 | `/api/restart` | GET | 重启机器 |
 

@@ -3,7 +3,6 @@ package com.gagmate.app.data.repository
 import android.util.Log
 import com.gagmate.app.BuildConfig
 import com.gagmate.app.data.local.entity.ProfileEntity
-import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.model.BrewPhase
 import com.gagmate.app.data.model.ShotProfile
 import com.gagmate.app.data.session.MachineSessionManager
@@ -81,20 +80,6 @@ class ProfileRepository(
     /** Activate a profile by its machine ID via WebSocket. */
     fun activateProfile(machineProfileId: Int) {
         session.selectProfile(machineProfileId)
-    }
-
-    // ── Delete ──────────────────────────────────────────────────
-
-    /** Delete from local DB + best-effort from machine via REST. */
-    suspend fun deleteProfile(localProfileId: String) {
-        val entity = localRepo.getProfileById(localProfileId) ?: return
-        localRepo.deleteProfile(localProfileId)
-        val machineId = entity.machineProfileId
-        if (machineId != null && entity.syncStatus != SyncStatus.LOCAL_ONLY) {
-            kotlinx.coroutines.coroutineScope {
-                machineRepo.deleteProfile(machineId.toIntOrNull() ?: return@coroutineScope)
-            }
-        }
     }
 
     // ── Import ──────────────────────────────────────────────────
