@@ -6,6 +6,7 @@ import com.gagmate.app.data.session.MachineSessionManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Simple service locator – keeps global singletons for the app's lifetime.
@@ -64,6 +65,10 @@ object AppContainer {
         // Begin streaming live shot data into the rolling chart buffer
         // immediately, independent of which screen is currently shown.
         shotRepo.start(appScope)
+
+        // One-time repair: re-derive durations for volume-driven flow phases that
+        // were stored before flow-rate estimation existed (offline, local DB only).
+        appScope.launch { syncManager.repairVolumeDrivenPhaseTimes() }
 
         isInitialised = true
     }

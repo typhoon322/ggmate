@@ -94,7 +94,7 @@ data class ShotRecordApi(
             duration = durationSec,
             volume = if (lastShotWeight > 0f) lastShotWeight
                      else (points.lastOrNull()?.weight ?: 0f),
-            embeddedPhases = profile?.phases?.map { it.toBrewPhase() } ?: emptyList(),
+            embeddedPhases = profile?.phases?.toBrewPhases(profile.globalStopConditions) ?: emptyList(),
             data = points
         )
     }

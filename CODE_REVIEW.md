@@ -295,6 +295,16 @@
 - 影响面：`ProfileDetailScreen` 与 `DashboardScreen` 的「当前曲线」共用 `generateProfileChartPoints`，两处一并修复。
 - `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅历史遗留告警，非本次引入）。
 
+### §0p 本轮改动（2026-07-30 晚）：流量估算替代 4s 占位 + 存量数据自修复
+用户指出 §0n 的 4s 兜底是「没动脑子」的占位，要求**用流量估算**阶段时长。
+- **根因（续）**：`turbo shot`(id 33) 阶段 2/3 的 `stopConditions={}` 且 `target` 无 `time`，但**全局 `globalStopConditions.weight=100`**——即按液量（重量）停止。`EmbeddedProfile` 模型本就持有该字段（`ShotRecord.kt:178`），可 `ShotRecord.toShotRecord()` 此前**从未把它传给 `toBrewPhase()`**，导致这两段既无 time、又无逐阶段体积，只能落到 4s 占位。
+- **修复**：
+  1. 新增 `PhaseModels.List<PhaseV3>.toBrewPhases(global)`：用全局体积 `V = globalStopConditions.weight` 估算「按重量停止、无显式 time」的 FLOW 阶段时长 —— `剩余体积 = V − Σ(已知体积)`，`time = 剩余体积 / Σ(flow)`（同组阶段时长相等、体积按流量比例分摊）。turbo shot 实测：P1=3.5ml/s×5s=17.5ml，余 82.5ml 按 flow(5,2.5) 分摊 → P2/P3 各 **11s**（总 27s，合理）。这才是「流量估算」，仅在完全无体积信息时退回 4s 兜底。
+  2. `ShotRecord.toShotRecord()` 改为 `profile?.phases?.toBrewPhases(profile.globalStopConditions)`——**今后新拉取的 shot 直接算出真实时长**（CORE Turbo 仍有显式 time，不受影响）。
+  3. **存量自修复（离线、纯本地）**：`SyncManager.repairVolumeDrivenPhaseTimes()` 在 `AppContainer.init` 经 `appScope` 启动一次；扫描所有 shot，对「FLOW 且 `target>0` 且 `time ≤ MIN_PHASE_SECONDS`」的阶段用该 shot 的实测 `volume`（≈目标体积）按同样的 `time = 剩余体积 / Σ(flow)` 重算并回写 `embedded_phases_json`，再 `seedProfilesFromAllShots()` 重新镜像到 profile。幂等：修完即无 broken 阶段，后续启动直接 early-return。原 `syncShots` 内联的「建最新 phases map + 落库」已抽成 `seedProfilesFromAllShots()` 复用。
+- 说明：存量行无全局 `weight`（从未落库），故用该 shot 实测 `volume` 作代理体积——这正是「用流量估算」；若某 shot `volume=0` 则跳过，保留 4s 兜底（仍可见）。今后新数据走真实的 `globalStopConditions.weight`，更准。
+- `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅 `limitedParallelism` 历史遗留 opt-in 告警，非本次引入）。
+
 ---
 
 ## 1. 项目架构（整理）

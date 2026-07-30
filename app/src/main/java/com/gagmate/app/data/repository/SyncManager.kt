@@ -8,6 +8,7 @@ import com.gagmate.app.data.local.entity.ShotEntity
 import com.gagmate.app.data.local.entity.SyncStatus
 import com.gagmate.app.data.local.entity.MachineSettingsEntity
 import com.gagmate.app.data.model.BrewPhase
+import com.gagmate.app.data.model.MIN_PHASE_SECONDS
 import com.gagmate.app.data.model.ShotRecord
 import com.gagmate.app.data.model.toBrewPhase
 import com.google.gson.Gson
@@ -175,9 +176,6 @@ class SyncManager(
 
     private suspend fun syncShots(): SyncResult {
         var shotsAdded = 0
-        // profile name -> (timestamp ms, real EASE_* phases) for the most recent
-        // matching shot. Built from ALL locally-stored shots after fetching.
-        val latestPhasesByName = mutableMapOf<String, Pair<Long, List<BrewPhase>>>()
         try {
             val latestId = machineRepo.getLatestShotId().getOrNull() ?: return SyncResult()
             val latestIdInt = latestId.toIntOrNull() ?: return SyncResult()
@@ -224,14 +222,7 @@ class SyncManager(
             // Build the per-profile "latest real phases" map from the DB state
             // AFTER saving, so freshly-fetched, backfilled and pre-existing rows
             // all contribute with normalized-ms timestamps.
-            localRepo.getAllShots().forEach { shot ->
-                val phases = shot.embeddedPhases()
-                if (phases.isNotEmpty()) {
-                    recordLatestPhases(latestPhasesByName, shot.profileName, shot.timestamp, phases)
-                }
-            }
-
-            seedProfilePhasesFromShots(latestPhasesByName)
+            seedProfilesFromAllShots()
         } catch (_: Exception) { }
         return SyncResult(shotsAdded = shotsAdded)
     }
@@ -245,6 +236,88 @@ class SyncManager(
                 list.isEmpty() || list.all { it.target == 0f && it.time <= 0.1f }
             }.getOrDefault(true)
         }
+    }
+
+    /**
+     * Build the per-profile "latest real phases" map from ALL locally-stored
+     * shots and mirror it into the matching SYNCED profiles. Shared by
+     * [syncShots] and the one-time [repairVolumeDrivenPhaseTimes] pass.
+     */
+    private suspend fun seedProfilesFromAllShots() {
+        val latestPhasesByName = mutableMapOf<String, Pair<Long, List<BrewPhase>>>()
+        localRepo.getAllShots().forEach { shot ->
+            val phases = shot.embeddedPhases()
+            if (phases.isNotEmpty()) {
+                recordLatestPhases(latestPhasesByName, shot.profileName, shot.timestamp, phases)
+            }
+        }
+        seedProfilePhasesFromShots(latestPhasesByName)
+    }
+
+    /**
+     * Re-derive durations for flow phases that were stored at the flat
+     * [MIN_PHASE_SECONDS] floor (volume-driven, stopped on the global weight) by
+     * distributing [totalVolume] across them in proportion to flow rate:
+     * `time = remaining_volume / Σ(flowRate)`. Phases that already carry a real
+     * duration are left untouched, so the pass is idempotent.
+     */
+    private fun estimateFromVolume(
+        phases: List<BrewPhase>,
+        totalVolume: Float
+    ): List<BrewPhase> {
+        if (totalVolume <= 0f) return phases
+        var knownVol = 0f
+        val estIdx = mutableListOf<Int>()
+        var sumFlow = 0f
+        phases.forEachIndexed { i, bp ->
+            if (!bp.isFlowType || bp.target <= 0f) return@forEachIndexed
+            if (bp.time > MIN_PHASE_SECONDS) {
+                knownVol += bp.target * bp.time
+            } else {
+                estIdx += i
+                sumFlow += bp.target
+            }
+        }
+        if (estIdx.isEmpty() || sumFlow <= 0f) return phases
+        val remaining = maxOf(0f, totalVolume - knownVol)
+        val perPhaseSec = (remaining / sumFlow).coerceIn(MIN_PHASE_SECONDS, 120f)
+        return phases.mapIndexed { i, bp ->
+            if (i in estIdx) bp.copy(time = perPhaseSec) else bp
+        }
+    }
+
+    /**
+     * One-time repair for shots ingested before flow-based phase timing existed.
+     * Those rows stored volume-driven flow phases at the flat floor (or the old
+     * 0.1s sliver), so their target curve collapsed. We re-derive those durations
+     * from the shot's measured volume (≈ target volume) and re-seed the mirrored
+     * profiles. Safe to call on every startup: it returns early once no broken
+     * phases remain, and it only touches local data (works offline).
+     */
+    private var repairDone = false
+    suspend fun repairVolumeDrivenPhaseTimes() {
+        if (repairDone) return
+        repairDone = true
+        try {
+            val shots = localRepo.getAllShots()
+            val needsRepair = shots.any { shot ->
+                shot.embeddedPhases().any { bp ->
+                    bp.isFlowType && bp.target > 0f && bp.time <= MIN_PHASE_SECONDS
+                }
+            }
+            if (!needsRepair) return
+            shots.forEach { shot ->
+                val phases = shot.embeddedPhases()
+                if (phases.isEmpty()) return@forEach
+                val repaired = estimateFromVolume(phases, shot.volume)
+                if (repaired != phases) {
+                    localRepo.saveShot(shot.copy(embeddedPhasesJson = gson.toJson(repaired)))
+                }
+            }
+            seedProfilesFromAllShots()
+            if (BuildConfig.DEBUG)
+                Log.d("GagMateProfile", "repairVolumeDrivenPhaseTimes: re-derived volume-driven phase times")
+        } catch (_: Exception) { }
     }
 
     private fun recordLatestPhases(

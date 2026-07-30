@@ -106,3 +106,52 @@ fun PhaseV3.toBrewPhase(): com.gagmate.app.data.model.BrewPhase {
         value = value
     )
 }
+
+/**
+ * Convert a whole profile's phases ([PhaseV3]) into [BrewPhase]s, using the
+ * profile-level [GlobalStopConditions] to estimate durations for flow phases
+ * that have no explicit time and simply stop on the global weight/volume limit
+ * (e.g. the "turbo shot" Main Extraction / Flow Finish phases).
+ *
+ * Estimation (real flow-rate math, not a placeholder):
+ *  - target volume `V` = `globalStopConditions.weight` (grams ≈ ml for water/espresso).
+ *  - phases with an explicit time, or a per-phase `waterPumpedInPhase`, already
+ *    know their poured volume → subtract those from `V` to get the *remaining*
+ *    volume that the volume-driven flow phases must pour.
+ *  - that remaining volume is shared across those flow phases in proportion to
+ *    their flow rate; since `time = volume / flow`, every such phase ends up with
+ *    the SAME duration `remaining / Σ(flowRates)`.
+ *
+ * Example (turbo shot): P1 pours 3.5 ml/s × 5 s = 17.5 ml; remaining 82.5 ml is
+ * split by flow (5 and 2.5) → each of P2/P3 gets 82.5 / 7.5 = 11 s.
+ */
+fun List<PhaseV3>.toBrewPhases(global: GlobalStopConditions? = null): List<BrewPhase> {
+    val base = map { it.toBrewPhase() }
+    val globalVol = (global?.weight ?: global?.waterPumped)?.takeIf { it > 0f } ?: return base
+
+    var knownVol = 0f
+    val estIdx = mutableListOf<Int>()
+    var sumFlow = 0f
+    forEachIndexed { i, p ->
+        val ms = p.target?.time ?: 0
+        val end = p.target?.end ?: 0f
+        val isFlow = p.type.equals("flow", ignoreCase = true)
+        val perPhaseVol = p.stopConditions?.waterPumpedInPhase
+        when {
+            ms > 0 && isFlow && end > 0f -> knownVol += end * ms / 1000f
+            perPhaseVol != null && perPhaseVol > 0f -> knownVol += perPhaseVol
+            isFlow && end > 0f && ms == 0 && (perPhaseVol ?: 0f) <= 0f -> {
+                estIdx += i
+                sumFlow += end
+            }
+        }
+    }
+    if (estIdx.isEmpty() || sumFlow <= 0f) return base
+
+    val remaining = maxOf(0f, globalVol - knownVol)
+    val perPhaseSec = (remaining / sumFlow).coerceIn(MIN_PHASE_SECONDS, 120f)
+    return base.mapIndexed { i, bp ->
+        if (i in estIdx) bp.copy(time = perPhaseSec, condition = "weight", value = globalVol)
+        else bp
+    }
+}

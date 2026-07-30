@@ -249,7 +249,7 @@ field 3: bytes         → 设置 (maxTime, targetWeight)
 ```
 - `type` 大写 `"FLOW"` / `"PRESSURE"`; `curve` 是**字符串** (`FLAT`/`EASE_IN`/`EASE_OUT`/`EASE_IN_OUT`/`FAST_IN`/`FAST_OUT`/`FAST_IN_OUT`).
 - 首阶段 `target` 常**缺 `start`** (从 0 起); `end` 为目标值. `PhaseTarget.start` 为可空 → 缺省按 0.
-- 直接映射到 `PhaseV3` + `PhaseTarget` (字段名一致), `toBrewPhase()` 解析正确.
+- 直接映射到 `PhaseV3` + `PhaseTarget` (字段名一致), `toBrewPhase()` 解析正确. 整段 profile 请用 `List<PhaseV3>.toBrewPhases(globalStopConditions)` 转换（见下方「格式转换」）——它会用全局 `globalStopConditions.weight` 为「按液量/重量停止、无显式 time」的 FLOW 阶段**按流量估算时长**。
 - REST `GET /api/profile/{id}` 在本机固件**已确认返回 SPA index.html（dead）**，不可用作曲线来源。WS `g_prof`→`d_prof`（官方 webui 同方式，已确认按 id 精确返回）提供**实时值**，但 `d_prof` protobuf **不携带 curve 类型**（解码后恒 `FLAT`）。故真实 curve 类型 (`EASE_OUT`/`EASE_IN_OUT`/…) **仅来自 shot 内嵌 `profile.phases`**（日志已核对，含 `EASE_IN`×26、`EASE_OUT`×52）。`fetchProfilePhases` 取数策略：① 曲线来源 = 本地「profile 名（或 id）匹配的最近 shot」的 `embedded_phases`（落库于 `shot_records.embedded_phases_json`，离线可用，见 §6.7）；② WS `requestProfilePhases(id,name)` 取实时值；③ 两者 phase 数一致时**按序叠加 curve 类型**到 WS 值上 → 图表呈现缓动；否则回退 curve 来源。phase 持久化（给 `ProfileEntity.phasesJson`）由 `SyncManager.syncShots` 完成（见 §6.7），`fetchProfilePhases` 不负责落库。
 field 4: float         → 温度设定
 field 5: string        → (空)
@@ -350,7 +350,8 @@ WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 p
 | `ActiveProfileMsg` | `ProtoMessage.kt` | WS `d_prof`/`d_act_prof` 解析结果: `name: String` + `phases: List<BrewPhase>` + `rawPayload: ByteArray`; 是 request/response 关联的 key |
 
 **格式转换**:
-- `PhaseV3.toBrewPhase()` 把 REST/JSON 阶段映射为本地 `BrewPhase`: `type` 归一为小写 `pressure`/`flow`; `target.end`→`target`, `target.start`(可空)→`start`(缺省 0); `target.curve`(字符串)→`variation`(大写, `LINEAR` 兜底); **阶段时长 `time` 解析优先级**: ① `target.time`(ms→s) 若存在; ② FLOW 阶段且 `stopConditions.waterPumpedInPhase>0` → 估算 `volume / flow`(夹在 `MIN_PHASE_SECONDS=4`–`120`s 之间); ③ `stopConditions.time`(ms→s); ④ 兜底 `MIN_PHASE_SECONDS=4s`(液量/重量停止、时长未定义的阶段, 如图 `turbo shot` 阶段 2/3——否则会塌缩成零宽不可见). 同时把停止条件类型写入 `BrewPhase.condition`/`value`(`volume`/`weight`/`limit`/`time`), 以便阶段列表展示并随 Room 往返保留.
+- `PhaseV3.toBrewPhase()` 把 REST/JSON 阶段映射为本地 `BrewPhase`: `type` 归一为小写 `pressure`/`flow`; `target.end`→`target`, `target.start`(可空)→`start`(缺省 0); `target.curve`(字符串)→`variation`(大写, `LINEAR` 兜底); **阶段时长 `time` 解析优先级**: ① `target.time`(ms→s) 若存在; ② FLOW 阶段且 `stopConditions.waterPumpedInPhase>0` → 估算 `volume / flow`(夹在 `MIN_PHASE_SECONDS=4`–`120`s 之间); ③ `stopConditions.time`(ms→s); ④ 兜底 `MIN_PHASE_SECONDS=4s`(无任何体积/重量信息时).
+- **流量估算（关键）**: 整段 profile 用 `List<PhaseV3>.toBrewPhases(global)` 转换（落库在 `ShotRecord.toShotRecord()` 调用, 传入 `EmbeddedProfile.globalStopConditions`）. 当某 FLOW 阶段**无显式 time 且按全局 `weight`/`waterPumped` 停止**时（如 `turbo shot` 阶段 2/3, 其 `stopConditions={}`, 全局 `weight:100`）, 算法: ① 目标体积 `V = globalStopConditions.weight`(g≈ml); ② 减去已有体积（显式 time 阶段 `flow×time` 与 `waterPumpedInPhase`）得**剩余体积**; ③ 剩余体积按各阶段 `flow` 速率比例分摊 → 因 `time = volume / flow`, 这些阶段得到**相同时长 `remaining / Σ(flow)`**. 例: turbo shot P1=3.5ml/s×5s=17.5ml, 余 82.5ml 按 flow(5,2.5) 分摊 → P2/P3 各 11s (总 27s, 合理). 这是**真正的流量估算**, 而非占位; 仅当连全局体积都没有时才落到 ④ 的 4s 兜底. 同时把停止条件类型写入 `BrewPhase.condition`/`value`(`volume`/`weight`/`limit`/`time`), 以便阶段列表展示并随 Room 往返保留.
 - WS protobuf 的 phase 由 `ProtoDecoder.decodePhaseInfo()` 直接产出 `BrewPhase` (`field 3` 嵌套 Target 的 `start/end/curve/time`), **不经过 `PhaseV3` 中转**.
 - `ActiveProfileMsg.phases` 已是 `List<BrewPhase>`, 可直接用于 `CurveChart.generateProfileChartPoints()` 与落库.
 
