@@ -1,6 +1,6 @@
 # GagMate — Gaggiuino Android Client Reference
 
-> 文档版本: 2026-07-29  
+> 文档版本: 2026-07-30  
 > 目标设备: Gaggiuino Gen3 (STM32U585, PCB v3b/v3.1)  
 > 通信协议: WebSocket (实时) + REST API (非实时)  
 > 数据编码: Custom Protobuf (WS) / JSON (REST)
@@ -350,7 +350,7 @@ WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 p
 | `ActiveProfileMsg` | `ProtoMessage.kt` | WS `d_prof`/`d_act_prof` 解析结果: `name: String` + `phases: List<BrewPhase>` + `rawPayload: ByteArray`; 是 request/response 关联的 key |
 
 **格式转换**:
-- `PhaseV3.toBrewPhase()` 把 REST/JSON 阶段映射为本地 `BrewPhase`: `type` 归一为小写 `pressure`/`flow`; `target.end`→`target`, `target.start`(可空)→`start`(缺省 0); `target.curve`(字符串)→`variation`(大写, `LINEAR` 兜底); `target.time`(ms)→`time`(秒, 下限 0.1s).
+- `PhaseV3.toBrewPhase()` 把 REST/JSON 阶段映射为本地 `BrewPhase`: `type` 归一为小写 `pressure`/`flow`; `target.end`→`target`, `target.start`(可空)→`start`(缺省 0); `target.curve`(字符串)→`variation`(大写, `LINEAR` 兜底); **阶段时长 `time` 解析优先级**: ① `target.time`(ms→s) 若存在; ② FLOW 阶段且 `stopConditions.waterPumpedInPhase>0` → 估算 `volume / flow`(夹在 `MIN_PHASE_SECONDS=4`–`120`s 之间); ③ `stopConditions.time`(ms→s); ④ 兜底 `MIN_PHASE_SECONDS=4s`(液量/重量停止、时长未定义的阶段, 如图 `turbo shot` 阶段 2/3——否则会塌缩成零宽不可见). 同时把停止条件类型写入 `BrewPhase.condition`/`value`(`volume`/`weight`/`limit`/`time`), 以便阶段列表展示并随 Room 往返保留.
 - WS protobuf 的 phase 由 `ProtoDecoder.decodePhaseInfo()` 直接产出 `BrewPhase` (`field 3` 嵌套 Target 的 `start/end/curve/time`), **不经过 `PhaseV3` 中转**.
 - `ActiveProfileMsg.phases` 已是 `List<BrewPhase>`, 可直接用于 `CurveChart.generateProfileChartPoints()` 与落库.
 
@@ -504,7 +504,7 @@ Y 轴: 左轴 0-16 (压力/泵流速/液重增速), 右轴 0-100 (温度/液重)
 - **`data class CurveSeries(color, axis, dashed=false, valueAt: (Int)->Float)`** — 一条曲线; `axis` 选左/右轴, `dashed` 画半透明设定线, `valueAt(i)` 返回第 i 点数值 (末位参数以便用尾随 lambda).
 - **`enum class ChartAxis { LEFT, RIGHT }`** — 左轴 0–`leftMax` (默认 16), 右轴 0–`rightMax` (默认 100).
 - **`@Composable CurveChart(...)`** — 共享 Canvas 渲染器: 网格 + 虚线 target + 实线 actual + 末端圆点标记 + 可选 `crosshairTime` 竖线. 参数 `t0/t1` 支持窗口化 (全屏图表缩放/平移).
-- **`fun generateProfileChartPoints(phases, resolution=0.25f): List<ChartPoint>`** — 设定曲线生成器. 每个阶段从 `start` 缓动到 `target`, 缓动方式取 `BrewPhase.variation` (EASE_OUT / EASE_IN_OUT / FAST_IN / …), 前一个阶段的末端值作为下一阶段起点以保证连续. **修复了原先只有 FLAT 阶梯** 的问题.
+- **`fun generateProfileChartPoints(phases, resolution=0.25f): List<ChartPoint>`** — 设定曲线生成器. 每个阶段从 `start` 缓动到 `target`, 缓动方式取 `BrewPhase.variation` (EASE_OUT / EASE_IN_OUT / FAST_IN / …), 前一个阶段的末端值作为下一阶段起点以保证连续. **修复了原先只有 FLAT 阶梯** 的问题. 阶段绘制时长取 `phase.time`, 但统一 `coerceAtLeast(MIN_PHASE_DRAW_SECONDS=4f)` **下限**, 确保时长未定义(液量/重量停止)的阶段仍画出可见曲线段——否则 `turbo shot` 等 profile 的阶段 2/3 会塌缩成零宽竖线而在图表上看不见.
 - **`fun curveVariationEasedProgress(variation, p): Float`** — 各 variation 枚举对应的缓动插值实现.
 - **`fun ProfileCurveChart(phases, height=200.dp)`** — 便捷封装, 用于仪表盘"当前曲线"卡片与曲线编辑器预览.
 - 共享配色常量 `ChartColorPressure/Flow/Temperature/Weight/WeightRate` 及其 `ChartColorTarget*` (alpha 0.4f) 版本.

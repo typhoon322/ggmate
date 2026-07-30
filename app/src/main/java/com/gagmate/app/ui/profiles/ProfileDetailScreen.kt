@@ -31,6 +31,7 @@ import com.gagmate.app.BuildConfig
 import com.gagmate.app.R
 import com.gagmate.app.data.local.entity.ProfileEntity
 import com.gagmate.app.data.model.BrewPhase
+import com.gagmate.app.data.model.PhaseStopConditions
 import com.gagmate.app.data.model.PhaseTarget
 import com.gagmate.app.data.model.PhaseV3
 import com.gagmate.app.data.repository.AppContainer
@@ -455,7 +456,17 @@ private fun ProfileEditPanel(
 fun BrewPhase.toPhaseV3(): PhaseV3 = PhaseV3(
     name = name,
     type = type.uppercase(),
-    target = PhaseTarget(end = target, time = (time * 1000).toInt()),
+    target = PhaseTarget(
+        end = target,
+        start = if (start > 0f) start else null,
+        time = (time * 1000).toInt()
+    ),
+    stopConditions = when (condition) {
+        "volume" -> PhaseStopConditions(waterPumpedInPhase = value)
+        "weight" -> PhaseStopConditions(weight = value)
+        "time" -> value?.let { PhaseStopConditions(time = (it * 1000).toInt()) }
+        else -> null
+    },
     skip = false
 )
 
@@ -472,7 +483,8 @@ fun PhaseCard(index: Int, phase: PhaseV3) {
         phase.stopConditions?.time?.let { "${it / 1000}s" },
         phase.stopConditions?.pressureAbove?.let { ">${it}bar" },
         phase.stopConditions?.pressureBelow?.let { "<${it}bar" },
-        phase.stopConditions?.waterPumpedInPhase?.let { "${it}ml" }
+        phase.stopConditions?.waterPumpedInPhase?.let { "${it}ml" },
+        phase.stopConditions?.weight?.let { "${it}g" }
     ).joinToString(" ")
     Card(
         modifier = Modifier.padding(vertical = 4.dp).fillMaxWidth(),

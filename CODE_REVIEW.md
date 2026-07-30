@@ -1,4 +1,4 @@
-# GagMate — 架构梳理与问题清单（2026-07-29 更新版）
+# GagMate — 架构梳理与问题清单（2026-07-30 更新版）
 
 > **状态说明**：本文档是对 `app/src/main/**`（54 个 Kotlin 文件，约 7,000 LOC）的重新梳理。
 > 早先（03:06）的初版 Code Review 报了一个「启动即崩溃」的致命 bug，但**过去 24 小时内代码已被修改**，
@@ -283,6 +283,16 @@
 - `ProfilesViewModel` 新增 `connectionState`（透传 `AppContainer.machineSession.connectionState`）；`loadProfiles()` 在 `!isConnected()` 时**直接 return**，不再调用 `syncFromMachine()`（即打开 tab / 点刷新都不会发起网络同步）。
 - 本地缓存曲线仍由 `init{}` 中的 `profilesFlow` 提供，未连接时列表照常展示本地数据，避免无意义的联网尝试与报错。
 - `ProfilesScreen` 收集 `connectionState`，非 `CONNECTED` 时在列表上方显示「未连接 · 仅显示本地缓存」提示条（新增双语 string `profiles_offline_hint`）。
+- `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅历史遗留告警，非本次引入）。
+
+### §0n 本轮改动（2026-07-30：曲线详情 profile 阶段 2/3 因 time=0 画不出）
+用户附 `gagmate_combined(7).log` 反馈：「CORE Turbo 能正常显示图表和阶段；turbo shot 也能显示但少了数据，阶段 2/3 停止条件是液量、时间为 0，没把图画出来」。
+- **根因**：`PhaseV3.toBrewPhase()` 只从 `target?.time` 取阶段时长；`turbo shot`(id 33) 阶段 2/3 的 `target` 无 `time` 且 `stopConditions` 为空（全局 `weight:100` 停止），故 `time` 塌缩为 `0.1f`；`generateProfileChartPoints` 又仅 `coerceAtLeast(0.1f)`，于是这两段成了零宽竖线，图表上看不见。CORE Turbo 各阶段 `target.time` 齐全（5/30/15s），所以正常。
+- **修复**：
+  1. `PhaseModels.toBrewPhase()` 重写：阶段时长解析优先级 = `target.time` → FLOW 阶段 `waterPumpedInPhase/flow` 估算 → `stopConditions.time` → 兜底 `MIN_PHASE_SECONDS=4s`；并把停止条件类型写入 `BrewPhase.condition`/`value`（`volume`/`weight`/`limit`/`time`）。
+  2. `CurveChart.generateProfileChartPoints()` 绘制时长下限由 `0.1f` 提到 `MIN_PHASE_DRAW_SECONDS=4f`——即使库里仍是旧 `0.1s` 行（老数据无需重新同步也能立即显示）。
+  3. `ProfileDetailScreen.toPhaseV3()` 现在用 `condition`/`value` **重建 `stopConditions`**；`PhaseCard` 新增 `weight` 停止条件展示，阶段列表得以显示液量/重量停止类型。
+- 影响面：`ProfileDetailScreen` 与 `DashboardScreen` 的「当前曲线」共用 `generateProfileChartPoints`，两处一并修复。
 - `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅历史遗留告警，非本次引入）。
 
 ---

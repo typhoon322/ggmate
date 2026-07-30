@@ -77,6 +77,10 @@ fun curveVariationEasedProgress(variation: String, p: Float): Float {
  * (EASE_OUT / EASE_IN_OUT / …) instead of a flat step. The previous phase's
  * end value is carried over so neighbouring phases connect smoothly.
  */
+/** Minimum drawn phase width (seconds). Phases with no declared duration
+ *  (volume/weight-stopped) would otherwise collapse to an invisible sliver. */
+private const val MIN_PHASE_DRAW_SECONDS = 4f
+
 fun generateProfileChartPoints(
     phases: List<BrewPhase>,
     resolution: Float = 0.25f
@@ -87,7 +91,7 @@ fun generateProfileChartPoints(
     var lastPressure = 0f
     var lastFlow = 0f
     for (phase in phases) {
-        val duration = phase.time.coerceAtLeast(0.1f)
+        val duration = phase.time.coerceAtLeast(MIN_PHASE_DRAW_SECONDS)
         val start = if (phase.start > 0f) phase.start
         else if (phase.type == "pressure") lastPressure else lastFlow
         val end = phase.target
