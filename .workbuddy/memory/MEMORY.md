@@ -7,12 +7,12 @@
 - 根目录 `AGENTS.md` = 项目根级协作规则（人可读，非 WorkBuddy 自动读取）。
 
 ## 架构要点速记
-- **数据权威原则（用户拍板 2026-07-29）**：Gaggiuino 主控板 = 唯一权威，本地 DB 是单向只读镜像；本地修改推送暂不做（`ProfileDetailScreen.EDIT_ENABLED=false` 隐藏编辑入口，push 方法全 no-op）。**曲线相位来源（2026-07-31 更正）**：WS `d_prof`/`d_act_prof` 携带真实 `EASE_*` curve 枚举（ProtoDecoder 解析 0–6），是**首选权威**；但本机固件 `g_prof(id)` **只回当前活跃 profile**，故 `requestProfilePhases` 必须先 `selectProfile(id)` 设为活跃再拉取。shot 内嵌 `profile.phases` 仅作离线回退 / WS 为 FLAT 时的 curve 叠加；REST `/api/profile/{id}` 在本机 dead（返回 SPA HTML）。Room 已到 v6（`shot_records.profile_id` 可空 + `embedded_phases_json`）。
+- **数据权威原则（用户拍板 2026-07-29）**：Gaggiuino 主控板 = 唯一权威，本地 DB 是单向只读镜像；本地修改推送暂不做（`ProfileDetailScreen.EDIT_ENABLED=false` 隐藏编辑入口，push 方法全 no-op）。**曲线相位来源（2026-07-31 再更正）**：Gen3 REST `GET /api/profiles/all` 返回**完整 profile**（含 `phases` + `globalStopConditions`），`SyncManager.syncProfiles` 已把每个 profile 的真实相位镜像进 `ProfileEntity.phasesJson`。因此**点开任意 profile 详情不再向机器推送 `c_upd_act_prof_id`（不设为活跃）**——这是用户 2026-07-31 明确要求；打开详情直接读本地 `phasesJson`，零副作用。WS `requestProfilePhases` 现在只作为「DB 为空且已连接」时的增强（仅对当前活跃 profile 有效，因本机 `g_prof(id)` 仍只回活跃 profile），不再 selectProfile。`ShotRepository`/`SyncManager` 仍把 shot 内嵌 `profile.phases` 作为兜底回填（仅当 phasesJson 仍为空时）。Room 已到 v6（`shot_records.profile_id` 可空 + `embedded_phases_json`）。
 - WS 全局单例 = `MachineSessionManager`，自带指数退避重连（连失败 6 次后转 ERROR）。
 - 曲线数据缓冲在 `ShotRepository.start(scope)`（AppContainer.appScope，进程级），不在 ViewModel，避免离开页面冻结。
 - 萃取只能由机器触发，仪表盘只显示状态；`brewActive` 上升沿自动跳转 `livecurve`。
 - 历史横屏图表是独立 NavHost 目标 `history_chart/{shotId}`（支持缩放/平移/拖拽游标）。
-- profile 详情取数：`MachineRepository.fetchProfilePhases` 优先 WS 真实曲线；`ProfileRepository.mirrorProfilePhases(id, phases)` 在本地 `phasesJson` 空白时把 WS 真实相位写回库（只读镜像安全补全，不覆盖已有数据）。打开任意详情会 `selectProfile` 把机器当前活跃 profile 设为该曲线（原生 UX）。
+- profile 详情取数：`SyncManager.syncProfiles` 在同步时把 REST `GET /api/profiles/all` 的完整相位（含 `globalStopConditions`）+ `ProfileRef.brewPhases()` → `estimateVolumeDrivenTimes` 镜像进 `ProfileEntity.phasesJson`；详情页直接读本地 `phasesJson`（优先），仅当为空才走 WS 增强。`ProfileRepository.mirrorProfilePhases(id, phases)` 仅当 `phasesJson` 空白时补全。**打开任意详情不再 `selectProfile`**（用户 2026-07-31 明确要求，避免把机器活跃 profile 切走）。
 - 网络日志已去重：`NetworkLogger`/`ApiDebugLogger` 用 `LinkedHashMap` 哈希缓存跳过连续重复响应 + 跳过 SPA-HTML shell；`ApiDebugLogger` 仅记 `/api/system/`。
 - 设计系统基础：`theme/Tokens.kt`（`GagMateExtendedColors` 语义色 + 间距/形状/海拔 token），经 `LocalGagMateColors` 注入；仪表盘已重构为 token 驱动、无障碍优先。组件内禁止硬编码 `Color(0xFF…)`，统一用 `gagMateColors()`。
 

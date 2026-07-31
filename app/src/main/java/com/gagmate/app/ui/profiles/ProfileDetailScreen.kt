@@ -112,16 +112,15 @@ private fun ProfileDetailContent(
     val scope = rememberCoroutineScope()
     val saveFailedText = stringResource(R.string.profiles_save_failed)
 
-    // Phase/curve definitions come from the live WebSocket d_prof/d_act_prof.
-    // requestProfilePhases makes the profile active so the machine pushes its full
-    // definition, including genuine EASE_* curves. REST GET /api/profile/{id} is
-    // dead on this firmware (returns SPA HTML); shot-embedded phases are a
-    // secondary offline source mirrored into ProfileEntity.phasesJson by SyncManager.
+    // Phase/curve definitions are mirrored into the local DB from the REST
+    // GET /api/profiles/all payload during sync (the official WebUI's mechanism),
+    // so opening a profile does NOT select it active on the machine. The live WS
+    // fetch below is only a best-effort enhancement when the DB has nothing yet.
     var fetchedPhases by remember(profile.id) { mutableStateOf<List<BrewPhase>>(emptyList()) }
 
-    // Display phases: prefer the live machine fetch (authoritative, real curves);
-    // fall back to the locally-mirrored phasesJson when offline / not connected.
-    val displayPhases = fetchedPhases.takeIf { it.isNotEmpty() } ?: phasesFromJson
+    // Display phases: prefer the locally-mirrored phasesJson (authoritative for any
+    // profile, no machine-side side effects); fall back to a live WS fetch.
+    val displayPhases = phasesFromJson.takeIf { it.isNotEmpty() } ?: fetchedPhases
 
     LaunchedEffect(profile.machineProfileId, profile.name) {
         if (BuildConfig.DEBUG)
@@ -130,16 +129,21 @@ private fun ProfileDetailContent(
                 "Detail content: name='${profile.name}' machineProfileId=${profile.machineProfileId} " +
                     "phasesJsonLen=${profile.phasesJson.length} phasesFromJson=${phasesFromJson.size} hasNoPhases=$hasNoPhases"
             )
-        try {
-            val fetched = AppContainer.machineRepo.fetchProfilePhases(profile.machineProfileId, profile.name)
-            fetchedPhases = fetched
-            // Read-only mirror: fill phasesJson only when empty, so the curve
-            // survives offline and never overwrites good shot-sourced data.
-            if (fetched.isNotEmpty() && profile.phasesJson.let { it.isBlank() || it == "[]" || it == "null" }) {
-                AppContainer.profileRepo.mirrorProfilePhases(profile.id, fetched)
-            }
-        } catch (_: Exception) { }
-        // Stop the loading shimmer once we've attempted the fetch (even if empty).
+        // The DB already has the mirrored phases for every profile after sync, so
+        // we render immediately. Only hit the WebSocket when the DB is empty and
+        // we're connected — and even then we never push c_upd_act_prof_id.
+        if (phasesFromJson.isEmpty()) {
+            try {
+                val fetched = AppContainer.machineRepo.fetchProfilePhases(profile.machineProfileId, profile.name)
+                fetchedPhases = fetched
+                // Read-only mirror: fill phasesJson only when empty, so the curve
+                // survives offline and never overwrites good REST-sourced data.
+                if (fetched.isNotEmpty() && profile.phasesJson.let { it.isBlank() || it == "[]" || it == "null" }) {
+                    AppContainer.profileRepo.mirrorProfilePhases(profile.id, fetched)
+                }
+            } catch (_: Exception) { }
+        }
+        // Stop the loading shimmer once we've settled (even if empty).
         loadingPhases = false
     }
 

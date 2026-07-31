@@ -115,13 +115,17 @@ class SyncManager(
             val local = localProfiles[mId]
 
             if (local == null) {
+                // The Gen3 /api/profiles/all response carries the FULL profile
+                // (phases + globalStopConditions). Mirror it straight in so the
+                // detail screen can show real curves without ever selecting the
+                // profile active on the machine.
                 val saved = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
                     notes = "",
                     machineProfileId = mId,
-                    phasesJson = "[]",
+                    phasesJson = gson.toJson(mp.brewPhases()),
                     syncStatus = SyncStatus.SYNCED,
                     localUpdatedAt = System.currentTimeMillis(),
                     createdAt = System.currentTimeMillis()
@@ -131,19 +135,24 @@ class SyncManager(
                 localRepo.saveProfile(saved)
                 profilesAdded++
             } else {
-                // Machine is the single source of truth: unconditionally mirror
-                // the machine version. Any local MODIFIED/CONFLICT state is
-                // discarded — its phasesJson is wiped so the shot-embedded
-                // seeder ([seedProfilePhasesFromShots]) refills it with the
-                // machine's real recipe on this same sync pass.
+                // Machine is the single source of truth. For a machine-mirror row
+                // we overwrite phasesJson with the profile list's FULL phase data
+                // (the Gen3 /api/profiles/all payload now carries it). Any local
+                // MODIFIED/CONFLICT state is discarded and its phases wiped so it
+                // can be re-seeded. If this firmware build happens not to include
+                // phases in the list payload we keep the existing phasesJson
+                // untouched and let [seedProfilePhasesFromShots] backfill.
                 val wasLocallyEdited = local.syncStatus == SyncStatus.MODIFIED ||
                     local.syncStatus == SyncStatus.CONFLICT
                 if (wasLocallyEdited && BuildConfig.DEBUG)
                     Log.d("GagMateProfile", "fullSync: DISCARDED local edits for id=$mId name='${mp.name}' (machine is authoritative)")
+                val newPhasesJson = if (wasLocallyEdited) "[]"
+                    else if (mp.phases.isNotEmpty()) gson.toJson(mp.brewPhases())
+                    else local.phasesJson
                 val saved = local.copy(
                     name = mp.name,
                     machineProfileId = mId,
-                    phasesJson = if (wasLocallyEdited) "[]" else local.phasesJson,
+                    phasesJson = newPhasesJson,
                     syncStatus = SyncStatus.SYNCED,
                     machineUpdatedAt = System.currentTimeMillis()
                 )
@@ -349,6 +358,10 @@ class SyncManager(
         if (latestPhasesByName.isEmpty()) return
         localRepo.getAllProfiles().forEach { profile ->
             if (profile.syncStatus != SyncStatus.SYNCED) return@forEach
+            // The /api/profiles/all payload already supplies the authoritative full
+            // phases; only backfill profiles that still have none so we never
+            // clobber the list-sourced data with a (possibly older) shot snapshot.
+            if (profile.phasesJson.isNotBlank() && profile.phasesJson != "[]" && profile.phasesJson != "null") return@forEach
             val match = latestPhasesByName[profile.name] ?: return@forEach
             if (match.second.isEmpty()) return@forEach
             val newJson = gson.toJson(match.second)

@@ -43,15 +43,30 @@ data class ShotRecord(
 
 /**
  * Response from GET /api/profiles/all.
- * Each entry is just a reference; the full profile with phases is
- * only available embedded in [ShotRecordApi].
+ *
+ * On Gaggiuino Gen3 firmware this endpoint returns the FULL profile, including
+ * its `phases` (in the same shape as [PhaseV3]) and `globalStopConditions`.
+ * That is how the official WebUI obtains every profile's complete definition in
+ * a single request and shows a profile's curve without ever pushing
+ * `c_upd_act_prof_id` (selecting the active profile is reserved for brewing /
+ * editing, not for viewing). We mirror these phases straight into the local DB
+ * during sync so the detail screen can render them with no active-profile push.
+ *
+ * The WebSocket `d_prof_dict` also decodes into [ProfileRef] (see
+ * [com.gagmate.app.data.protocol.parseProfileDict]); for that path `phases`
+ * simply stays empty — only the REST list carries them.
  */
 data class ProfileRef(
     val id: Int = 0,
     val name: String = "",
-    @SerializedName("selected") val selected: String = "false"
+    @SerializedName("selected") val selected: String = "false",
+    @SerializedName("phases") val phases: List<PhaseV3> = emptyList(),
+    @SerializedName("globalStopConditions") val globalStopConditions: GlobalStopConditions? = null
 ) {
     val isSelected: Boolean get() = selected == "true"
+
+    /** Full phase list as [BrewPhase]s, with flow-driven durations estimated. */
+    fun brewPhases(): List<BrewPhase> = phases.toBrewPhases(globalStopConditions)
 }
 
 /**

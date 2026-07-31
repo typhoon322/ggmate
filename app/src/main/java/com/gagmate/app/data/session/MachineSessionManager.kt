@@ -444,14 +444,16 @@ is SystemStateMsg -> {
      * and await the `d_prof`/`d_act_prof` response (which carries the real phase
      * list, curves, and global stop conditions).
      *
-     * On Gaggiuino firmware `g_prof` returns only the *currently selected*
-     * profile, so to read an arbitrary profile we first send `c_upd_act_prof_id`
-     * to make it the active one — the machine then pushes its full `d_act_prof`.
-     * We also nudge with `g_prof` for firmwares that honour the id argument.
-     * Either way the response is correlated by the profile name in the payload.
-     *
-     * Selecting a profile is non-destructive (it only loads the recipe; it does
-     * not start a brew), and matches how the official Gaggiuino UI works.
+     * IMPORTANT — no active-profile push:
+     * Opening a profile in GagMate must NOT call `c_upd_act_prof_id` (select
+     * active profile) on the machine. The official Gaggiuino WebUI reads every
+     * profile's complete definition from the REST `GET /api/profiles/all`
+     * payload (which includes `phases` + `globalStopConditions`) and only ever
+     * selects a profile active when the user actually brews / edits — never just
+     * to *view* a curve. GagMate mirrors that REST payload into the local DB
+     * during sync, so the detail screen renders from the DB and this WS call is
+     * only a live enhancement for the *currently active* profile (which `g_prof`
+     * returns directly without any selection).
      *
      * @return the phase list, or empty if the machine does not respond in time
      *         or the WebSocket is not connected.
@@ -464,9 +466,10 @@ is SystemStateMsg -> {
         if (!isConnected()) return emptyList()
         val deferred = CompletableDeferred<List<com.gagmate.app.data.model.BrewPhase>>()
         synchronized(pendingProfileDeferreds) { pendingProfileDeferreds[profileName] = deferred }
-        // Make this profile active so the machine pushes its full definition.
-        selectProfile(profileId)
-        // Nudge with an explicit get (harmless; some firmwares answer this directly).
+        // Nudge with an explicit get. On this firmware `g_prof(id)` answers only
+        // for the active profile; for non-active profiles the local DB (mirrored
+        // from /api/profiles/all) is the source of truth. We deliberately do NOT
+        // push c_upd_act_prof_id here.
         sendGetProfile(profileId)
         return try {
             withTimeout(timeoutMs) { deferred.await() }
