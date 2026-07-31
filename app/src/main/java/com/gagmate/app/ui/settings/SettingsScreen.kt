@@ -36,7 +36,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(),
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenDebugExperiment: () -> Unit = {}
 ) {
     val host by viewModel.host.collectAsState()
     val port by viewModel.port.collectAsState()
@@ -416,6 +417,41 @@ fun SettingsScreen(
                         checked = WsOverlayControl.enabled,
                         onCheckedChange = { WsOverlayControl.enabled = it }
                     )
+                }
+            }
+
+            // Debug-only: hidden WebView protocol experiment
+            if (BuildConfig.DEBUG) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "WebSocket 协议实验",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "用隐藏 WebView 模拟 WebUI 抓取机器协议日志（debug 专属）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Button(onClick = onOpenDebugExperiment) {
+                            Text("打开实验")
+                        }
+                    }
                 }
             }
 

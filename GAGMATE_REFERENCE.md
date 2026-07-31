@@ -715,3 +715,25 @@ MainActivity.onCreate()
 6. **Phase 编辑（已停用）**: 主控板为唯一权威、本地修改推送暂不支持——编辑入口由 `ProfileDetailScreen.EDIT_ENABLED = false` 隐藏，`pushAndSaveIfConfirmed` / `saveEditedProfile` / `uploadPendingProfiles` 均为 no-op。编辑 UI 代码保留，未来恢复推送时翻回开关即可
 7. **Shot 时间戳 double ×1000** (已修复): `toShotRecord()` 曾对已是毫秒的值再 ×1000, 现统一经 `TimeUtils.normalizeShotTimestamp()` 归一化 + `MIGRATION_3_4` 修复存量数据 (详见 §9)
 
+---
+
+## 附录 C — 隐藏 WebView 协议实验（调试工具）
+
+**目的**：用一台「隐形」的 WebView 模拟官方 WebUI，向机器发起真实的 WebSocket 调用，把协议交互日志抓回 App 内展示——无需 adb/logcat，即可坐实「WebUI 到底怎么获取 profile 详情 / `g_prof(id)` 是否按 id 返回」这类问题。
+
+**入口**：`设置` → （debug 专属，仅 `BuildConfig.DEBUG` 可见）`WebSocket 协议实验` → `运行实验`。
+
+**原理**：
+- `DebugWsExperimentScreen` 内藏一个 `1×1` 不可见 `WebView`（`Modifier.size(1.dp)`），加载 `assets/ws_experiment.html`。
+- 该 HTML 内的 JS **逐字节复刻**了 App 的 `ProtoCodec` / `ProtoCommands`（protobuf 帧：`field1=命令名串`、`field2=负载字节`；`g_prof(id)` 负载 = `varint field1=id`），因此与官方 WebUI 走的是同一套线协议。
+- JS 经 `WsExperimentJsBridge`（`@JavascriptInterface`：`log()` / `done()`）把每一步（WS OPEN、`d_prof_dict` 解析、每次 `d_prof`/`d_act_prof` 是否含目标 profile 名、TEST1/TEST2 判定）回传 App，显示在实验日志面板。
+- `MachineSessionManager.wsUrl` 提供 `${ws://}$host/ws`；`DebugWsExperimentViewModel.buildConfigJson()` 从已连接的 session 取「非活跃 profile」作目标、「活跃 profile」作对照，注入实验。
+
+**实验内容（两段）**：
+1. **TEST1（无 select）**：直接 `g_prof(目标id)`，4s 内若收到含目标名的 `d_prof` → 证明 `g_prof` 按 id 返回，打开详情无需 `selectProfile` 即可显示任意曲线（零副作用）。
+2. **TEST2（先 select）**：先 `c_upd_act_prof_id(目标id)` 再 `g_prof(目标id)`，验证「切活跃后才能拿相位」是否与 WebUI「tap 即 select 预览」一致。结束会 `c_upd_act_prof_id(原活跃id)` 还原机器状态。
+
+**结论判定**由 JS 写入 `SUMMARY` 并落 `DebugWsExperimentViewModel.summary`，直接在面板展示。该实验独立于 App 现有 WS 连接（另开一个 socket），中途若 `d_prof_dict` 未自动推送则 5s 后按注入配置继续。
+
+> 说明：此工具用于协议取证，默认仅在 debug 构建可见；不影响 release。
+

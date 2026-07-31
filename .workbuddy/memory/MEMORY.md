@@ -15,6 +15,7 @@
 - profile 详情取数：本地 `ProfileEntity.phasesJson` 由 `SyncManager.seedProfilePhasesFromShots` 在同步期从 **shot 内嵌 `profile.phases`** 写入（REST `GET /api/profiles/all` 本机固件仅返回 id/name/selected，不含相位，已实测）；详情页优先读本地 `phasesJson`，为空才 `fetchProfilePhases` 兜底（WS `g_prof` 仅对当前活跃 profile 有效 + shot 内嵌回退）。`ProfileRepository.mirrorProfilePhases(id, phases)` 仅当 `phasesJson` 空白时补全。**打开任意详情不再 `selectProfile`**（用户 2026-07-31 明确要求，避免把机器活跃 profile 切走）。
 - 网络日志已去重：`NetworkLogger`/`ApiDebugLogger` 用 `LinkedHashMap` 哈希缓存跳过连续重复响应 + 跳过 SPA-HTML shell；`ApiDebugLogger` 仅记 `/api/system/`。
 - 设计系统基础：`theme/Tokens.kt`（`GagMateExtendedColors` 语义色 + 间距/形状/海拔 token），经 `LocalGagMateColors` 注入；仪表盘已重构为 token 驱动、无障碍优先。组件内禁止硬编码 `Color(0xFF…)`，统一用 `gagMateColors()`。
+- **协议取证工具（调试专属）**：`设置`(仅 debug) → `WebSocket 协议实验` → `运行实验`：`DebugWsExperimentScreen` 内藏 `1×1` 不可见 `WebView` 加载 `assets/ws_experiment.html`，其 JS 逐字节复刻 `ProtoCodec`/`ProtoCommands` 线协议，连机器实测 `d_prof_dict` + `g_prof(id)` 是否按 id 返回，日志回传 App 内面板。用于取代第三方库 schema 推断，坐实 WebUI 取数机制（详见 `GAGMATE_REFERENCE.md` 附录 C / `CODE_REVIEW.md` §0s）。
 
 ## 已知待办（优先级 4-6，尚未处理）
 - 删除死代码 `GaggiuinoV3Client.kt`（337 行，与 MachineSessionManager/ProtoDecoder 重复）。

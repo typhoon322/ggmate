@@ -439,6 +439,11 @@ is SystemStateMsg -> {
     /** True when the WebSocket is currently connected to the machine. */
     fun isConnected(): Boolean = connectionState.value == ConnectionState.CONNECTED
 
+    /** WebSocket URL for the connected machine, e.g. ws://192.168.0.186/ws.
+     *  Used by the hidden WebView experiment harness to talk to the machine
+     *  the same way the official WebUI does. */
+    val wsUrl: String get() = "ws://$host/ws"
+
     /**
      * Request the full definition of a profile from the machine over WebSocket
      * and await the `d_prof`/`d_act_prof` response (which carries the real phase

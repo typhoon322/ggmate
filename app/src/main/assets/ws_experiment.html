@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>GagMate WS Experiment</title></head>
+<body>
+<script>
+"use strict";
+
+// ── protobuf codec — mirrors app ProtoCodec / ProtoCommands (Kotlin) ──
+function readVarint(data, offset) {
+  let value = 0, shift = 0, pos = offset;
+  while (pos < data.length) {
+    const b = data[pos] & 0xFF;
+    value |= (b & 0x7F) << shift;
+    shift += 7; pos++;
+    if ((b & 0x80) === 0) break;
+  }
+  return [value, pos];
+}
+function encodeVarint(value) {
+  const out = [];
+  let v = value >>> 0;
+  while (v >= 0x80) { out.push((v & 0x7F) | 0x80); v = Math.floor(v / 128); }
+  out.push(v & 0x7F);
+  return out;
+}
+function encodeTag(field, wt) { return encodeVarint((field << 3) | wt); }
+function strToBytes(s) { return Array.from(new TextEncoder().encode(s)); }
+function encodeLengthDelimited(field, bytes) {
+  return encodeTag(field, 2).concat(encodeVarint(bytes.length), bytes);
+}
+function buildCommand(cmd, payload) {
+  const cmdPart = encodeLengthDelimited(1, strToBytes(cmd));
+  if (payload && payload.length) return cmdPart.concat(encodeLengthDelimited(2, payload));
+  return cmdPart;
+}
+function buildGetProfile(id) {
+  const payload = encodeTag(1, 0).concat(encodeVarint(id));
+  return buildCommand("g_prof", payload);
+}
+function buildSelectProfile(id) {
+  const payload = encodeTag(1, 0).concat(encodeVarint(id));
+  return buildCommand("c_upd_act_prof_id", payload);
+}
+function decodeResponse(data) {
+  let offset = 0, command = "", payload = [];
+  while (offset < data.length) {
+    const [tw, p1] = readVarint(data, offset); offset = p1;
+    const fn = tw >> 3, wt = tw & 0x7;
+    if (wt === 0) { const [, p2] = readVarint(data, offset); offset = p2; }
+    else if (wt === 2) {
+      const [len, p2] = readVarint(data, offset); offset = p2;
+      const v = data.slice(offset, offset + len); offset += len;
+      if (fn === 1) command = bytesToStr(v); else if (fn === 2) payload = v;
+    }
+    else if (wt === 5) { offset += 4; }
+    else break;
+  }
+  return command ? { command: command, payload: payload } : null;
+}
+function parseProfileDict(payload) {
+  const profiles = []; let off = 0;
+  while (off < payload.length) {
+    const [tw, p1] = readVarint(payload, off); off = p1; const fn = tw >> 3; if (fn !== 1) break;
+    const [len, p2] = readVarint(payload, off); off = p2; const entry = payload.slice(off, off + len); off += len;
+    let eo = 0, pid = 0, pname = "", psel = false;
+    while (eo < entry.length) {
+      const [etw, ep] = readVarint(entry, eo); eo = ep; const efn = etw >> 3, ewt = etw & 0x7;
+      if (ewt === 0) { const [ev, ep2] = readVarint(entry, eo); eo = ep2; if (efn === 1) pid = ev; else if (efn === 3) psel = ev !== 0; }
+      else if (ewt === 2) { const [el, ep2] = readVarint(entry, eo); eo = ep2; if (efn === 2) pname = bytesToStr(entry.slice(eo, eo + el)); eo += el; }
+    }
+    profiles.push({ id: pid, name: pname, selected: psel });
+  }
+  return profiles;
+}
+const _dec = new TextDecoder('utf-8');
+function bytesToStr(bytes) { return _dec.decode(bytes); }
+
+// ── experiment ──
+function log(s) { try { GagMateBridge.log(String(s)); } catch (e) {} }
+const TOUT = 4000;
+
+function runExperiment(cfg) {
+  log("EXP START wsUrl=" + cfg.wsUrl +
+      " target='" + cfg.targetName + "'(id=" + cfg.targetId + ")" +
+      " active='" + cfg.activeName + "'(id=" + cfg.activeId + ")");
+  let dictDone = false, phase = 0, dictTimerFired = false;
+  const res = { test1_noSelect: null, test2_withSelect: null };
+
+  const ws = new WebSocket(cfg.wsUrl);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => log("WS OPEN");
+  ws.onerror = (e) => log("WS ERROR " + (e.message || "unknown"));
+  ws.onclose = () => log("WS CLOSE");
+  ws.onmessage = (ev) => {
+    if (typeof ev.data === "string") { log("WS TEXT: " + ev.data.slice(0, 160)); return; }
+    const data = new Uint8Array(ev.data);
+    const dec = decodeResponse(data);
+    if (!dec) { log("WS BIN(" + data.length + "B) unparsed"); return; }
+    const cmd = dec.command, payload = dec.payload;
+    if (cmd === "d_prof_dict") {
+      const profiles = parseProfileDict(payload);
+      log("d_prof_dict: " + profiles.length + " profiles, payload " + payload.length + "B");
+      profiles.forEach(p => log("  prof id=" + p.id + " name='" + (p.name || "") + "' selected=" + p.selected));
+      if (!dictDone) { dictDone = true; setTimeout(startTest1, 600); }
+    } else if (cmd === "d_prof" || cmd === "d_act_prof") {
+      const t = bytesToStr(payload);
+      const hasTarget = t.indexOf(cfg.targetName) >= 0;
+      const hasActive = t.indexOf(cfg.activeName) >= 0;
+      log("RECV " + cmd + " (" + payload.length + "B) target=" + hasTarget + " active=" + hasActive);
+      if (phase === 1 && hasTarget && res.test1_noSelect === null) { res.test1_noSelect = true; finishTest1(); }
+      if (phase === 2 && hasTarget && res.test2_withSelect === null) { res.test2_withSelect = true; finishTest2(); }
+    } else {
+      log("RECV " + cmd + " (" + payload.length + "B)");
+    }
+  };
+
+  // Fallback: even if d_prof_dict is not auto-pushed, continue with injected config.
+  setTimeout(() => {
+    if (!dictDone && !dictTimerFired) {
+      dictTimerFired = true;
+      log("d_prof_dict 未在 5s 内到达，按注入配置继续测试");
+      startTest1();
+    }
+  }, 5000);
+
+  function startTest1() {
+    if (cfg.targetId === cfg.activeId) { log("TEST1 SKIP: target == active"); res.test1_noSelect = "skip"; finishTest1(); return; }
+    phase = 1;
+    log("TEST1: send g_prof(" + cfg.targetId + ") WITHOUT selectProfile");
+    ws.send(new Uint8Array(buildGetProfile(cfg.targetId)));
+    setTimeout(() => { if (res.test1_noSelect === null) { res.test1_noSelect = false; finishTest1(); } }, TOUT);
+  }
+  function finishTest1() {
+    if (finishTest1.done) return; finishTest1.done = true;
+    log("TEST1 VERDICT: g_prof returns target WITHOUT select = " +
+        (res.test1_noSelect === true ? "YES" : (res.test1_noSelect === "skip" ? "SKIP" : "NO")));
+    setTimeout(startTest2, 400);
+  }
+  function startTest2() {
+    if (cfg.targetId === cfg.activeId) { log("TEST2 SKIP: target == active"); res.test2_withSelect = "skip"; finishTest2(); return; }
+    phase = 2;
+    log("TEST2: selectProfile(" + cfg.targetId + ") then g_prof(" + cfg.targetId + ")");
+    ws.send(new Uint8Array(buildSelectProfile(cfg.targetId)));
+    setTimeout(() => { ws.send(new Uint8Array(buildGetProfile(cfg.targetId))); log("TEST2: sent g_prof after select"); }, 500);
+    setTimeout(() => { if (res.test2_withSelect === null) { res.test2_withSelect = false; finishTest2(); } }, TOUT + 800);
+  }
+  function finishTest2() {
+    if (finishTest2.done) return; finishTest2.done = true;
+    log("TEST2 VERDICT: g_prof returns target AFTER select = " +
+        (res.test2_withSelect === true ? "YES" : (res.test2_withSelect === "skip" ? "SKIP" : "NO")));
+    log("RESTORE: selectProfile(" + cfg.activeId + ")");
+    try { ws.send(new Uint8Array(buildSelectProfile(cfg.activeId))); } catch (e) {}
+    const conclusion = res.test1_noSelect === true
+      ? "g_prof(id) 直接返回所请求的 profile → 打开详情无需 selectProfile 即可显示任意曲线"
+      : (res.test2_withSelect === true
+          ? "g_prof(id) 只回活跃 profile → 必须 selectProfile 才能看非活跃曲线（与 WebUI 一致）"
+          : "两种情况都拿不到目标 profile → 非活跃曲线只能靠 shot 内嵌相位缓存");
+    const summary = {
+      targetId: cfg.targetId, targetName: cfg.targetName,
+      activeId: cfg.activeId, activeName: cfg.activeName,
+      test1_noSelect: res.test1_noSelect, test2_withSelect: res.test2_withSelect,
+      conclusion: conclusion
+    };
+    log("SUMMARY: " + JSON.stringify(summary));
+    try { GagMateBridge.done(JSON.stringify(summary)); } catch (e) {}
+    setTimeout(() => { try { ws.close(); } catch (e) {} }, 600);
+  }
+}
+window.runExperiment = runExperiment;
+</script>
+</body>
+</html>

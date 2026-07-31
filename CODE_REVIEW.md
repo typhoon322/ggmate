@@ -348,6 +348,15 @@
 
 ---
 
+### §0s 协议取证工具：隐藏 WebView 实验（2026-07-31）
+
+- 用户建议：「弄一个不可见的 WebView，模拟 WebUI 去调取 API / 连接 WebSocket 做实验，拿到日志再开发」。
+- 已落地：`设置`(debug 专属) → `WebSocket 协议实验` → `运行实验`。`DebugWsExperimentScreen` 内藏 `1×1` 不可见 `WebView` 加载 `assets/ws_experiment.html`，其 JS **逐字节复刻** App 的 `ProtoCodec`/`ProtoCommands`（同一套 Gaggiuino WS 线协议），连接机器后抓取真实 `d_prof_dict` 与 `g_prof(目标id)` 响应，经 `WsExperimentJsBridge` 回传 App 内日志面板。
+- 实验两段：TEST1 直接 `g_prof(id)`（无 select）→ 验证能否「不切活跃」显示任意曲线；TEST2 先 `selectProfile` 再 `g_prof` → 验证与 WebUI「tap 即 select 预览」是否一致；结束还原活跃 profile。
+- 用途：把「本机固件 `g_prof(id)` 到底按 id 返回还是只回活跃」这类争论变成**机器实测日志**，取代第三方库 schema 推断。详见 `GAGMATE_REFERENCE.md` 附录 C。
+
+---
+
 ## 1. 项目架构（整理）
 
 ### 1.1 分层结构
