@@ -81,34 +81,30 @@ class MachineRepository(
     /**
      * Resolve the phase list for a profile for LIVE display.
      *
-     * Curve-source decision (see project log analysis + CODE_REVIEW §0):
+     * Curve-source decision (see project log analysis + CODE_REVIEW):
      *   - REST `GET /api/profile/{id}` is DEAD on this firmware — it returns the
      *     SPA index.html, so it cannot supply curve types.
-     *   - WS `d_prof` carries phase values but NOT the curve enum (decoder sees
-     *     only 0 → always FLAT).
-     *   - The ONLY reliable source of real EASE_* curve strings is the profile
-     *     EMBEDDED in shot records (`GET /api/shots/{id}` → `profile.phases`,
-     *     mirrored into `shot_records.embedded_phases_json`). Those are persisted
-     *     by [com.gagmate.app.data.repository.SyncManager.syncShots] and are
-     *     available offline.
+     *   - The WebSocket `d_prof`/`d_act_prof` path (`requestProfilePhases`) is the
+     *     authoritative, live source: it carries the REAL phase list with genuine
+     *     EASE_* curve enums (decoded in `parseProfilePhases`) AND the global
+     *     stop conditions. We make the requested profile active so the machine
+     *     actually pushes its full definition (otherwise `g_prof` only returns the
+     *     currently-selected profile).
+     *   - A shot-embedded profile (`GET /api/shots/{id}` → `profile.phases`) is a
+     *     secondary, offline-capable source persisted by [SyncManager.syncShots].
      *
-     * Strategy (live display only — persistence happens via `syncShots`):
-     *   1. Curve source = most recent local shot whose embedded profile matches
-     *      this profile (by name, or by machine id). Real EASE_* strings.
-     *   2. Live WS `g_prof`→`d_prof` *values* (FLAT curve), overlaid onto the
-     *      curve source when phase counts match, so the chart shows eased
-     *      transitions AND current machine values.
-     *   3. Fall back to the curve source alone, then to WS alone.
+     * Strategy:
+     *   1. Prefer live WS phases when they carry real curves.
+     *   2. If WS comes back FLAT (some firmwares) but a shot-embedded profile has
+     *      real EASE_* curves, overlay those curve types onto the live values.
+     *   3. Fall back to shot-embedded alone, then WS alone.
      *
      * Returns an empty list only if every source is unavailable.
      */
     suspend fun fetchProfilePhases(id: String?, name: String): List<BrewPhase> {
         val intId = id?.toIntOrNull()
 
-        // (A) Curve source — real EASE_* strings from a shot-embedded profile.
-        val shotPhases: List<BrewPhase>? = resolveShotPhases(intId, name)
-
-        // (B) Live WS definition — authoritative values, but curve type is FLAT.
+        // (A) Live WS definition — authoritative values AND real EASE_* curves.
         val wsPhases: List<BrewPhase>? = if (intId != null && name.isNotBlank()) {
             try {
                 AppContainer.machineSession.requestProfilePhases(intId, name, 3500)
@@ -116,12 +112,21 @@ class MachineRepository(
             } catch (_: Exception) { null }
         } else null
 
+        // (B) Offline / secondary source — real EASE_* strings from a shot-embedded profile.
+        val shotPhases: List<BrewPhase>? = resolveShotPhases(intId, name)
+
+        val wsHasRealCurve = wsPhases?.any {
+            it.variation.isNotBlank() && it.variation !in setOf("FLAT", "LINEAR")
+        } == true
+
         return when {
-            // Merge: keep live WS values, overlay real curve types by phase index.
+            // WS has genuine curves → use it directly.
+            wsPhases != null && wsHasRealCurve -> wsPhases
+            // WS is FLAT but the shot source has real curves → overlay curves.
             wsPhases != null && shotPhases != null && shotPhases.size == wsPhases.size -> {
                 wsPhases.mapIndexed { i, wp ->
                     val cv = shotPhases[i].variation
-                    if (cv.isNotBlank() && cv != "FLAT" && cv != "LINEAR") wp.copy(variation = cv) else wp
+                    if (cv.isNotBlank() && cv !in setOf("FLAT", "LINEAR")) wp.copy(variation = cv) else wp
                 }
             }
             shotPhases != null -> shotPhases

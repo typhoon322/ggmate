@@ -33,7 +33,10 @@ fun parseProtoMessage(cmd: String, payload: ByteArray): ProtoMessage = when (cmd
     Commands.SHOT_HISTORY_INDEX -> ShotHistoryIndexMsg(parseShotIndex(payload))
     Commands.ACTIVE_PROFILE, Commands.PROFILE -> {
         val name = extractProfileName(payload) ?: "unknown"
-        val phases = parseProfilePhases(payload)
+        // Profile-level global stop (weight/volume) drives duration estimation for
+        // phases that have no explicit time (see parseProfilePhases / toBrewPhases).
+        val g = Commands.extractProfileGlobals(payload)
+        val phases = parseProfilePhases(payload, g.targetWeight ?: g.targetTime)
         if (BuildConfig.DEBUG)
             Log.d("GagMateProfile", "parseProto(${cmd}): name='$name' phases=${phases.size} payload=${payload.size}B")
         ActiveProfileMsg(name, phases, payload, cmd == Commands.ACTIVE_PROFILE)

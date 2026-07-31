@@ -1,4 +1,4 @@
-# GagMate — 架构梳理与问题清单（2026-07-30 更新版）
+# GagMate — 架构梳理与问题清单（2026-07-31 更新版）
 
 > **状态说明**：本文档是对 `app/src/main/**`（54 个 Kotlin 文件，约 7,000 LOC）的重新梳理。
 > 早先（03:06）的初版 Code Review 报了一个「启动即崩溃」的致命 bug，但**过去 24 小时内代码已被修改**，
@@ -146,7 +146,7 @@
 - **shot 内嵌回填落库（更早尝试）**：把 shot 内嵌 `profile.phases` 按 name 回写本地库 —— 用户指出 shot 是历史快照，改配方后失效，已撤。
 
 ### 已知固件风险
-- ~~`g_prof` 是否按请求 id 精确返回该 profile~~ **已确认**：`g_prof(id)` 按请求 id 精确返回该条 profile 的当前定义（官方 webui 即以此获取 profile 数据）。因此同步时逐条 `g_prof(id)` 可正确回填**每条**非活跃曲线，离线/无 WS 时也能绘制；`requestProfilePhases(id,name)` 的 name 关联亦可靠。
+- ~~`g_prof` 是否按请求 id 精确返回该 profile~~ ~~**已确认**：`g_prof(id)` 按请求 id 精确返回该条 profile 的当前定义（官方 webui 即以此获取 profile 数据）。因此同步时逐条 `g_prof(id)` 可正确回填**每条**非活跃曲线，离线/无 WS 时也能绘制；`requestProfilePhases(id,name)` 的 name 关联亦可靠。~~ **已证伪（见 §0q）**：本机固件 `g_prof` 只回**当前活跃** profile，故必须 `selectProfile(id)` 先把它设为活跃才能取到——这正是 §0q 改走 `selectProfile` 的原因；WS 本身携带真实 `EASE_*` curve。
 - 验证：`SyncManager` 日志 `fullSync: ADDED profile ... (phases filled via WS g_prof)` 表示已建行；WS→Room 日志 `WROTE phasesJson (N B) for name='X'` 表示已落库（N>2 即有效）。
 
 ---
@@ -304,6 +304,30 @@
   3. **存量自修复（离线、纯本地）**：`SyncManager.repairVolumeDrivenPhaseTimes()` 在 `AppContainer.init` 经 `appScope` 启动一次；扫描所有 shot，对「FLOW 且 `target>0` 且 `time ≤ MIN_PHASE_SECONDS`」的阶段用该 shot 的实测 `volume`（≈目标体积）按同样的 `time = 剩余体积 / Σ(flow)` 重算并回写 `embedded_phases_json`，再 `seedProfilesFromAllShots()` 重新镜像到 profile。幂等：修完即无 broken 阶段，后续启动直接 early-return。原 `syncShots` 内联的「建最新 phases map + 落库」已抽成 `seedProfilesFromAllShots()` 复用。
 - 说明：存量行无全局 `weight`（从未落库），故用该 shot 实测 `volume` 作代理体积——这正是「用流量估算」；若某 shot `volume=0` 则跳过，保留 4s 兜底（仍可见）。今后新数据走真实的 `globalStopConditions.weight`，更准。
 - `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（仅 `limitedParallelism` 历史遗留 opt-in 告警，非本次引入）。
+
+### §0q 本轮改动（2026-07-31：profile 详情「其他曲线仍无数据」+ 网络日志去重）
+
+基于 `gagmate_combined(8).log` 复核，修复两个问题。
+
+#### ① profile 详情除「原来就有数据」的两条外，其他仍空白
+- **根因（经代码+日志核对，推翻 §0f / §0j 的「WS `d_prof` 不携带 curve」结论）**：
+  1. 本机固件上 `g_prof(id)` **只回当前活跃 profile**，不会按 id 返回任意 profile。旧 `requestProfilePhases` 直接 `g_prof(id)` → 非活跃 profile 永远超时取空（`d_prof` 落在别的 deferred 或超时）。
+  2. 更早的「WS `d_prof` curve 恒 FLAT」判断是**错的**：`ProtoDecoder.decodePhaseInfo`/`parseProfilePhases` 实际会解析 curve 枚举（sub3 varint → `curveEnumToString` 0–6 → FLAT/EASE_IN/…/FAST_IN_OUT），并随 `ProtoMessage` 提取全局体积做流量时长估算。**WS `d_prof`/`d_act_prof` 才是携带真实 `EASE_*` 曲线的最权威来源**。
+- **修复**：
+  - `MachineSessionManager.requestProfilePhases` 改为**先 `selectProfile(id)`（`c_upd_act_prof_id`）把目标 profile 设为活跃**，再 `sendGetProfile(id)`（`g_prof`）nudge——机器随即推该 profile 的完整 `d_act_prof`（选 profile 只加载配方、不触发萃取，与官方 webui 一致）。见 `GAGMATE_REFERENCE.md` §3.4。
+  - `MachineRepository.fetchProfilePhases` 改为 **WS 相位优先**（已含真实 curve）；shot 内嵌相位仅作「离线回退 / WS 为 FLAT 时按序叠加 curve」；二者皆空才返空。
+  - `ProfileRepository` 新增 `mirrorProfilePhases(id, phases)`：详情页取数后，**仅当本地 `phasesJson` 为空白（`""`/`"[]"`/`"null"`）时**把 WS 真实相位写回库——安全只读镜像补全，绝不覆盖 shot/sync 已写入的数据（`ProfileDetailScreen` 在 `phasesFromJson` 为空时才调用）。
+- **副作用（已告知）**：打开任意 profile 详情会把它设为机器当前活跃 profile（主控板唯一权威，与 Gaggiuino 原生 UX 一致）；仪表盘「当前曲线」会跟着最后查看的 profile 走。
+
+#### ② 网络日志去重（用户要求：重复数据不要存，太占空间、难分析）
+- `NetworkLogger.log()` 与 `ApiDebugLogger.logResponse()` 新增 `LinkedHashMap<String,Int>` 哈希缓存（`MAX_CACHE_ENTRIES=256`）：对「同一 endpoint（path 去 host）的相同 status+body」做**连续去重**，跳过与上一次完全相同的响应帧。
+- 两处均**跳过 SPA shell**：响应 body 含 `<!DOCTYPE html` 直接不记录（即 `GET /api/profile/{id}` 返回的 Gaggiuino 单页应用 HTML——死端点，无数据价值）。
+- `GgboardApiClient` 收窄 `ApiDebugLogger` 捕获范围：只记录 `/api/system/`（profiles/shots 已在主网络日志里，避免重复双存）。
+- 效果：原 `gagmate_combined(8).log` 中 `/api/profile/{id}` 557 次 SPA-HTML 响应、以及大量逐帧重复 REST 响应不再落盘，日志体积与分析成本大幅下降。
+
+`BUILD SUCCESSFUL`（`assembleDebug` 已验证通过）。
+
+> ⚠️ **历史章节更正**：§0e 的「`g_prof(id)` 按请求 id 精确返回该 profile（已确认）」现已证伪——本机固件 `g_prof` 只回活跃 profile，故 §0e/§0f 依赖「逐条 `g_prof(id)` 回填每条曲线」的方案不成立（这正是 §0q 改走 `selectProfile` 的原因）。§0f 的「WS `d_prof` 根本不携带 curve 类型 / 恒 FLAT」与 §0g/§0j 的同类结论**均已推翻**：WS 实际携带真实 `EASE_*` curve 枚举。这些早期章节保留为当时判断记录，但当前真相以此 §0q 与 `GAGMATE_REFERENCE.md` §3.4 / §6.3 / §6.4 / §6.7 为准。
 
 ---
 

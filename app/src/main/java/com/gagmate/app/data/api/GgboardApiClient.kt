@@ -51,9 +51,11 @@ object GgboardApiClient {
                 durationMs = durationMs
             )
 
-            // Also capture raw JSON for endpoints whose format is being investigated
+            // Also capture raw JSON for the live system endpoint (the only one whose
+            // format is still worth a dedicated raw capture; profiles/shots are already
+            // in the main network log, so we don't double-store them here).
             val path = request.url.encodedPath
-            if (path.startsWith("/api/system/") || path.startsWith("/api/profiles/") || path.startsWith("/api/shots/")) {
+            if (path.startsWith("/api/system/")) {
                 ApiDebugLogger.logResponse(path, response.code, responseBody)
             }
             DebugLogState.add("HTTP ${request.method}", "$path ${response.code} ${responseBody.take(120)}")

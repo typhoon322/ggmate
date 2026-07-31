@@ -70,6 +70,20 @@ class ProfileRepository(
     /** Live, auto-updating single profile (for the detail dialog). */
     fun observeProfile(id: String) = localRepo.observeProfile(id)
 
+    /**
+     * Mirror machine-fetched phases into the local DB (read-only mirror of the
+     * board). Only fills [ProfileEntity.phasesJson] when it is currently empty, so
+     * it never overwrites shot-sourced data and is safe to call on every detail
+     * open. Lets a profile's curve survive offline and show on the list/dashboard.
+     */
+    suspend fun mirrorProfilePhases(id: String, phases: List<BrewPhase>) {
+        if (phases.isEmpty()) return
+        val entity = localRepo.getProfileById(id) ?: return
+        val current = entity.phasesJson
+        if (current.isNotBlank() && current != "[]" && current != "null") return
+        localRepo.saveProfile(entity.copy(phasesJson = gson.toJson(phases)))
+    }
+
     // ── Sync ────────────────────────────────────────────────────
 
     /** Sync profiles with the machine (bidirectional). */

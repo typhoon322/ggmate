@@ -112,16 +112,17 @@ private fun ProfileDetailContent(
     val scope = rememberCoroutineScope()
     val saveFailedText = stringResource(R.string.profiles_save_failed)
 
-    val phasesList = phasesFromJson.takeIf { it.isNotEmpty() }
-
-    // The authoritative phase/curve definitions come from the shot-EMBEDDED
-    // profile (persisted into shot_records.embedded_phases_json and mirrored into
-    // ProfileEntity.phasesJson by SyncManager.syncShots). REST detail
-    // GET /api/profile/{id} is dead on this firmware (returns SPA HTML) and WS
-    // d_prof carries no curve enum, so shot-embedded is the only real EASE_*
-    // source. fetchProfilePhases overlays live WS g_prof VALUES (FLAT) onto those
-    // curves for the chart; when offline it falls back to the local DB phasesJson.
+    // Phase/curve definitions come from the live WebSocket d_prof/d_act_prof.
+    // requestProfilePhases makes the profile active so the machine pushes its full
+    // definition, including genuine EASE_* curves. REST GET /api/profile/{id} is
+    // dead on this firmware (returns SPA HTML); shot-embedded phases are a
+    // secondary offline source mirrored into ProfileEntity.phasesJson by SyncManager.
     var fetchedPhases by remember(profile.id) { mutableStateOf<List<BrewPhase>>(emptyList()) }
+
+    // Display phases: prefer the live machine fetch (authoritative, real curves);
+    // fall back to the locally-mirrored phasesJson when offline / not connected.
+    val displayPhases = fetchedPhases.takeIf { it.isNotEmpty() } ?: phasesFromJson
+
     LaunchedEffect(profile.machineProfileId, profile.name) {
         if (BuildConfig.DEBUG)
             Log.d(
@@ -130,20 +131,20 @@ private fun ProfileDetailContent(
                     "phasesJsonLen=${profile.phasesJson.length} phasesFromJson=${phasesFromJson.size} hasNoPhases=$hasNoPhases"
             )
         try {
-            fetchedPhases = AppContainer.machineRepo.fetchProfilePhases(profile.machineProfileId, profile.name)
+            val fetched = AppContainer.machineRepo.fetchProfilePhases(profile.machineProfileId, profile.name)
+            fetchedPhases = fetched
+            // Read-only mirror: fill phasesJson only when empty, so the curve
+            // survives offline and never overwrites good shot-sourced data.
+            if (fetched.isNotEmpty() && profile.phasesJson.let { it.isBlank() || it == "[]" || it == "null" }) {
+                AppContainer.profileRepo.mirrorProfilePhases(profile.id, fetched)
+            }
         } catch (_: Exception) { }
         // Stop the loading shimmer once we've attempted the fetch (even if empty).
         loadingPhases = false
     }
 
-    // Chart reads from the live editing copy while editing. Otherwise prefer
-    // the local DB phases (phasesList) when the live fetch is FLAT, because the
-    // synced DB now holds the real EASE_* curve types; only fall back to the
-    // live WS phases (even if FLAT) as a last resort so data still shows.
-    val liveHasRealCurve = fetchedPhases.any { it.variation != "FLAT" && it.variation != "LINEAR" }
-    val chartPhases = if (isEditing) editedPhases
-    else if (fetchedPhases.isNotEmpty() && liveHasRealCurve) fetchedPhases
-    else (phasesList ?: fetchedPhases)
+    // While editing, show the live editing copy; otherwise the merged display set.
+    val chartPhases = if (isEditing) editedPhases else displayPhases
 
     fun discardEdits() {
         editedName = profile.name
@@ -300,7 +301,7 @@ private fun ProfileDetailContent(
                         Text(text = profile.notes, style = MaterialTheme.typography.bodyMedium)
                     }
                 }
-                if (phasesList != null && phasesList.isNotEmpty()) {
+                if (displayPhases.isNotEmpty()) {
                     item {
                         Text(
                             text = stringResource(R.string.profile_phases),
@@ -318,7 +319,7 @@ private fun ProfileDetailContent(
                             }
                         }
                     }
-                    itemsIndexed(phasesList) { index, phase ->
+                    itemsIndexed(displayPhases) { index, phase ->
                         PhaseCard(index = index + 1, phase = phase.toPhaseV3())
                     }
                 }

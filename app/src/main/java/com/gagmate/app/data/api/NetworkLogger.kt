@@ -31,6 +31,10 @@ object NetworkLogger {
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private val tsFmt = SimpleDateFormat("yyyy-MM-dd_HHmmss", Locale.US)
 
+    /** Last seen (status+body) signature per endpoint, for duplicate suppression. */
+    private val recentHashes = java.util.LinkedHashMap<String, Int>()
+    private const val MAX_CACHE_ENTRIES = 256
+
     // ── Initialisation ──────────────────────────────────────────────
 
     /** Call once from Application or MainActivity.onCreate(). */
@@ -100,6 +104,27 @@ object NetworkLogger {
     ) {
         val dir = logDir ?: return
         rotateIfNeeded(dir)
+
+        // Skip SPA shell responses. Dead endpoints (e.g. GET /api/profile/{id}
+        // returns the web-UI index.html) carry no data and only bloat the log.
+        if (responseBody != null && responseBody.contains("<!DOCTYPE html", ignoreCase = true)) return
+
+        // De-duplicate consecutive identical responses for the same endpoint.
+        // High-frequency polls (system/status, profiles/all, shots/latest) and the
+        // dead profile endpoint collapse to a single entry each instead of hundreds.
+        val key = url.substringAfter("//").substringAfter('/')  // endpoint path (drops host)
+        val sig = (statusCode.toString() + "|" + (responseBody ?: requestBody ?: "")).hashCode()
+        val skip: Boolean = synchronized(recentHashes) {
+            val prev = recentHashes[key]
+            if (prev == sig) {
+                true
+            } else {
+                recentHashes[key] = sig
+                if (recentHashes.size > MAX_CACHE_ENTRIES) recentHashes.remove(recentHashes.keys.first())
+                false
+            }
+        }
+        if (skip) return
 
         val timestamp = dateFmt.format(Date())
 

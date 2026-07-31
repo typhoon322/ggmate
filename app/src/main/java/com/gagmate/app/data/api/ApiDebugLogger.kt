@@ -32,6 +32,10 @@ object ApiDebugLogger {
     private var logDir: File? = null
     private val dateFmt = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
 
+    /** Last seen body signature per endpoint, for duplicate suppression. */
+    private val recentHashes = java.util.LinkedHashMap<String, Int>()
+    private const val MAX_CACHE_ENTRIES = 256
+
     /** Call once from Application / MainActivity. */
     fun init(context: Context) {
         logDir = File(context.cacheDir, LOG_DIR).also { it.mkdirs() }
@@ -47,6 +51,20 @@ object ApiDebugLogger {
     fun logResponse(endpoint: String, statusCode: Int, body: String) {
         val dir = logDir ?: return
         rotateIfNeeded(dir)
+
+        // Skip duplicate frames: only keep the latest unique (endpoint + body) so
+        // repeated sensor snapshots / identical responses don't pile up.
+        val sig = (endpoint + "|" + statusCode + "|" + body).hashCode()
+        val skip: Boolean = synchronized(recentHashes) {
+            val prev = recentHashes[endpoint]
+            if (prev == sig) true
+            else {
+                recentHashes[endpoint] = sig
+                if (recentHashes.size > MAX_CACHE_ENTRIES) recentHashes.remove(recentHashes.keys.first())
+                false
+            }
+        }
+        if (skip) return
 
         val ts = dateFmt.format(Date())
         FileWriter(File(dir, LOG_FILE), true).use { w ->

@@ -1,6 +1,6 @@
 # GagMate — Gaggiuino Android Client Reference
 
-> 文档版本: 2026-07-30  
+> 文档版本: 2026-07-31  
 > 目标设备: Gaggiuino Gen3 (STM32U585, PCB v3b/v3.1)  
 > 通信协议: WebSocket (实时) + REST API (非实时)  
 > 数据编码: Custom Protobuf (WS) / JSON (REST)
@@ -121,7 +121,7 @@
 - 粘贴 JSON 导入 `PasteJsonDialog`
 - 创建示例曲线
 - 删除/导出曲线
-- 打开详情即通过 `fetchProfilePhases(id, name)` 取当前曲线定义 (WS 实时值 + shot 内嵌 profile 的 curve 类型叠加, 详见 §3.4 / §6.3), 用 `CurveChart` 绘制设定曲线 (含正确缓动).
+- 打开详情即通过 `fetchProfilePhases(id, name)` 取当前曲线定义 (WS `d_prof`/`d_act_prof` 已含真实 `EASE_*` 曲线, shot 内嵌 profile 仅作离线回退/叠加, 详见 §3.4 / §6.3), 用 `CurveChart` 绘制设定曲线 (含正确缓动).
 
 **Phase 数据类型**:
 - `BrewPhase` — 本地存储格式 (字段: name, type, target, time, condition, next)
@@ -269,20 +269,21 @@ JSON 格式:
 
 ---
 
-### 3.4 Profile 实时取数机制 (g_prof 请求↔响应关联)
+### 3.4 Profile 实时取数机制 (g_prof / c_upd_act_prof_id 请求↔响应关联)
 
-WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 protobuf **不携带 curve 类型**（解码后恒 `FLAT`，见 `ProtoDecoder.decodePhaseInfo`）。真实 curve 类型（`EASE_OUT`/`EASE_IN_OUT`/…）**仅存在于 shot 内嵌 `profile.phases` 的字符串字段**（REST `GET /api/profile/{id}` 在本机固件返回 SPA HTML，已确认 dead），由 `fetchProfilePhases` 叠加（见 §6.3 / §6.7）。WS 本身是异步的：发 `g_prof(id)` 后，机器在将来的某一帧才回 `d_prof`/`d_act_prof`。为让调用方能**同步等待**结果，`MachineSessionManager` 用「按 profile name 关联的 `CompletableDeferred`」做请求/响应配对：
+WS `d_prof`/`d_act_prof` 提供「当前」曲线定义的**完整实时定义**——protobuf **携带真实 curve 枚举**（`decodePhaseInfo` 读 sub3 varint → `curveEnumToString` 映射 0–6 到 `FLAT`/`EASE_IN`/…/`FAST_IN_OUT`；sub2=end、sub1=start、sub4=time(ms→s)），所以 `parseProfilePhases` 解出的就是带缓动的真实 `EASE_*` 曲线，是**全网最权威的曲线来源**。真实 curve 类型**不再依赖** shot 内嵌 `profile.phases`（REST `GET /api/profile/{id}` 在本机固件返回 SPA HTML，已确认 dead）。WS 本身是异步的：发请求后，机器在将来的某一帧才回 `d_prof`/`d_act_prof`。为让调用方能**同步等待**结果，`MachineSessionManager` 用「按 profile name 关联的 `CompletableDeferred`」做请求/响应配对：
 
 - `pendingProfileDeferreds: MutableMap<String, CompletableDeferred<List<BrewPhase>>>` — 以 **profile name** 为 key (因为 `d_prof` 响应 protobuf 携带的是该 profile 的 name, 而非请求时的 id).
 - `requestProfilePhases(id: Int, name: String, timeoutMs = 3500): List<BrewPhase>`:
   1. 若 `!isConnected()` 直接返回空;
   2. 注册 `pendingProfileDeferreds[name] = CompletableDeferred()`;
-  3. `sendGetProfile(id)` 发 `g_prof` (二进制帧, field1 = profileId);
-  4. `withTimeout(timeoutMs)` 等待 deferred; 超时返回空;
-  5. `finally` 清理该 name 的 deferred (防泄漏).
-- `ActiveProfileMsg` 处理 (`handleMessage`): phases 非空时 → ① 更新 `_selectedProfilePhases` StateFlow; ② `profileDataReceived.tryEmit(name to phases)`; ③ `pendingProfileDeferreds.remove(name)?.complete(phases)` 完成对应 deferred.
+  3. **先 `selectProfile(id)` 发 `c_upd_act_prof_id` 把该 profile 设为活跃**——本机固件实测 `g_prof` **只回当前活跃 profile**，不会按 id 返回任意 profile，所以必须先让它活跃，机器才会推它的完整 `d_act_prof`（选 profile 只加载配方、不触发萃取，与官方 webui 行为一致）；
+  4. 再 `sendGetProfile(id)` 发 `g_prof` (二进制帧, field1 = profileId) 作为 nudge（部分固件会直接按 id 应答）;
+  5. `withTimeout(timeoutMs)` 等待 deferred; 超时返回空;
+  6. `finally` 清理该 name 的 deferred (防泄漏).
+- `ActiveProfileMsg` 处理 (`handleMessage`): phases 非空时 → ① 更新 `_selectedProfilePhases` StateFlow; ② `profileDataReceived.tryEmit(name to phases)`; ③ `pendingProfileDeferreds.remove(name)?.complete(phases)` 完成对应 deferred（exact name 优先；exact 缺失但仅 1 个 pending 时兜底完成，避免 `d_prof` name 缺失时超时取空）.
 
-> 关联可靠性建立在「`g_prof(id)` 按 id 精确返回该 profile, 且响应携带其 name」之上 (官方 webui 行为, 已确认). 若固件对别的 id 返回活跃 profile, name 关联会错配; 但本固件已确认按 id 精确返回.
+> 注意：因 `requestProfilePhases` 会 `selectProfile`，**打开任意 profile 详情都会把它设为机器当前活跃 profile**（主控板是唯一权威，本地只读镜像，这与 Gaggiuino 原生 UX 一致）。仪表盘的「当前曲线」因此会跟着你最后查看的 profile 走。
 
 **Proactive 预取**: `d_prof_dict` 选中项到达时 (`ProfileDictMsg`), 立即 `sendGetProfile(selected.id)` 预拉取选中 profile 的 phases + 全局设定值, 即使机器从不主动推 `d_act_prof` 也能拿到.
 
@@ -404,12 +405,12 @@ WS `g_prof`→`d_prof` 提供「当前」曲线定义的**实时值**，但其 p
 REST 调用封装:
 - `fetchMachineState()`, `fetchProfiles()`.
 - `getProfileDetail(id)` — `GET /api/profile/{id}` → `EmbeddedProfile`. **本机固件已确认返回 SPA HTML（dead）**，调用会失败；保留为通用端点但**不作为曲线来源**（真实 curve 来源见下）.
-- `fetchLatestShotId()`, `fetchShotDetail(id)` — shot 记录内嵌 `profile.phases` (PhaseV3 同 schema). 该内嵌 profile 经 `ShotRecordApi.toShotRecord()` 镜像进 `ShotEntity.embeddedPhasesJson`, 是 **`fetchProfilePhases` 的 curve 来源** (按 name 或 `profile.id` 匹配, 离线可用).
+- `fetchLatestShotId()`, `fetchShotDetail(id)` — shot 记录内嵌 `profile.phases` (PhaseV3 同 schema). 该内嵌 profile 经 `ShotRecordApi.toShotRecord()` 镜像进 `ShotEntity.embeddedPhasesJson`, 作为 **`fetchProfilePhases` 的离线回退 curve 来源** (按 name 或 `profile.id` 匹配, 离线可用); 联网时优先用 WS `d_prof`/`d_act_prof` (已含真实 `EASE_*` curve, 见 §3.4).
 - `fetchProfilePhases(id, name): List<BrewPhase>` — **联网实时展示取数入口** (不负责落库):
-  1. 取 **curve 来源**: 本地「profile 名（或 id）匹配的最近 shot」的 `embedded_phases` (`resolveShotPhases`, 经 `LocalDataRepository.getLatestShotByProfileName/Id`) — 携带真实 `EASE_*` curve 字符串, **离线可用**;
-  2. 取 **WS `g_prof`→`d_prof` 实时值** (`session.requestProfilePhases(id, name)`, 按 name 关联, 带 3.5s 超时) — 但 curve 类型恒为 `FLAT`;
-  3. 若 WS 与 curve 来源 phase 数一致 → **按序叠加 curve 类型**到 WS 值上 (图表呈现缓动); 否则回退 curve 来源; 再否则回退 WS.
-  落库由 `SyncManager.syncShots` 完成 (见 §6.7).
+  1. 取 **WS `d_prof`/`d_act_prof` 实时定义** (`session.requestProfilePhases(id, name)`, 带 3.5s 超时). 该路径**携带真实 `EASE_*` curve 枚举** (`ProtoDecoder.decodePhaseInfo` 经 `curveEnumToString` 解析 0–6), 且 `parseProfilePhases` 已用全局体积做流量时长估算 (`estimateVolumeDrivenTimes`), 故是**首选权威来源**;
+  2. 取 **离线回退 curve 来源**: 本地「profile 名（或 id）匹配的最近 shot」的 `embedded_phases` (`resolveShotPhases`, 经 `LocalDataRepository.getLatestShotByProfileName/Id`) — 同样含真实 `EASE_*` curve 字符串;
+  3. 选择逻辑: WS 含真实 curve → 直接用 WS; WS 为 FLAT 但 shot 源有真实 curve 且 phase 数一致 → 按序叠加 shot curve 到 WS 值上 (图表呈现缓动); 否则优先 shot 源; 再否则回退 WS.
+  落库由 `SyncManager.syncShots` (seed) 与详情页 `mirrorProfilePhases` (见 §6.4/§6.7) 完成.
 - `uploadProfile(profile)`（应用层已停用推送，见 §6.4 编辑推送 no-op）
 - `selectMachineProfile(id)`
 
@@ -418,7 +419,8 @@ REST 调用封装:
 **文件**: [`ProfileRepository.kt`](app/src/main/java/com/gagmate/app/data/repository/ProfileRepository.kt)
 
 - `profilesFlow` — 观察本地所有曲线
-- 订阅 `session.profileDataReceived` 仅作**日志诊断**：WS `d_prof` 的 curve 类型恒为 `FLAT`/`乱码`，且 REST 详情端点 dead，故 phase 的**持久化已改由 `SyncManager.syncShots` 从 shot 内嵌 profile 完成**（见 §6.7）。本收集器**不再写库**，以免把不可靠的 WS 相位覆盖掉 shot 来源的真实 `EASE_*` 曲线。
+- `profileDataReceived` 收集器保留作**日志诊断**：WS `d_prof` 现已能解析出真实 `EASE_*` curve（不再是恒 FLAT/乱码），但为避免与 `syncShots` seed 竞争，该收集器**不直接写库**（详见 §6.7）。详情页取数后通过 `mirrorProfilePhases(id, phases)` **按需回填**：仅在对应 profile 的 `phasesJson` 为空（`""`/`"[]"`/`"null"`）时写入 WS 真实相位——这是只读镜像的安全补全，绝不覆盖 shot 来源/同步已写入的数据。
+- `mirrorProfilePhases(id, phases)` — 只读镜像补全：读实体，仅当 `phasesJson` 当前为空白时才用传入相位填充（safe mirror，永不覆盖已有数据）。`ProfileDetailScreen` 在 `phasesFromJson` 为空时才调用，确保联网取到真实相位后能落库供离线复用。
 - `exportAsJson()` — 导出为 JSON
 - **编辑推送已停用**：`pushAndSaveIfConfirmed()` / `saveEditedProfile()` 均为 no-op（返回 `SyncManager.PUSH_DISABLED_MESSAGE`，**本地和机器都不写**）——主控板为唯一权威，本地修改推送暂不支持。详情页编辑入口由 `ProfileDetailScreen` 顶部 `EDIT_ENABLED = false` 隐藏；编辑 UI 代码保留，未来恢复推送时置回 `true` 即可。
 - **用户删除已移除**：`ProfilesScreen` 的 `onDelete` 调用、`ProfileCard` 的 `onDelete` 参数与删除图标、`ProfilesViewModel.deleteProfile()` 已删除；连带移除 `ProfileRepository.deleteProfile()` / `MachineRepository.deleteProfile()` / `GgboardApi.deleteProfile()`（含 `DELETE /api/profile-select/{id}` 端点）。`SyncStatus` 等仅删除逻辑使用的 import 一并清理。唯一保留的删除是 `SyncManager` 的**镜像删除**——机器已删某 profile 且机器列表非空时，本地同步删除该 profile（`LocalDataRepository.deleteProfile`），以保证本地 DB 始终与主控板一致（非用户操作）。
@@ -451,7 +453,7 @@ REST 调用封装:
 - `syncProfiles()` — 同步曲线列表，**机器数据无条件覆盖本地**：
   - 本地行一律镜像机器版本并置为 `SYNCED`；旧的 `MODIFIED`/`CONFLICT` 状态被**直接丢弃**（其 `phasesJson` 清为 `[]`，同一轮 `syncShots()` 会用 shot 内嵌相位重新填充为机器真实配方）；不再有冲突/上传分支。
   - **镜像删除**：本地存在但机器列表中已不存在的机器镜像行（`machineProfileId` 非空且非 `LOCAL_ONLY`）会被删除；仅当机器列表**非空**时执行，防止异常空响应清空整个镜像。
-  - **不再**在同步时发 WS `g_prof`，也**不再**调用 dead 的 REST `GET /api/profile/{id}` 去填充相位（见 §6.3：该端点在本机固件返回 SPA HTML）。profile 的相位/曲线来源完全交给 `syncShots()`。
+  - **不再**在同步时发 WS `g_prof`（详情页取数改由 `MachineRepository.fetchProfilePhases` 经 `requestProfilePhases` → `selectProfile`+`g_prof` 实时拉取，见 §3.4/§6.3），也**不再**调用 dead 的 REST `GET /api/profile/{id}` 去填充相位（见 §6.3：该端点在本机固件返回 SPA HTML）。profile 的相位/曲线**离线**来源完全交给 `syncShots()`（seed），**联网**实时展示来源为 WS `d_prof`/`d_act_prof`。
 - `uploadPendingProfiles()` — **已停用（no-op）**，返回 `PUSH_DISABLED_MESSAGE` 错误说明；保留方法仅为让"上传待同步"按钮优雅降级。
 - `syncShots()` — 同步萃取记录 (REST → 本地 DB)，并**顺带完成 profile 相位的落库**：
   - 每条拉取的 shot 把其内嵌 `profile`（`EmbeddedProfile.phases`，含真实 `EASE_*` curve 字符串）写入 `ShotEntity.embeddedPhasesJson`（`ShotRecordApi.toShotRecord` 捕获 `profile.id` + `profile.phases`，时间戳统一归一化为 epoch 毫秒）；
@@ -459,7 +461,7 @@ REST 调用封装:
   - 「最近一条」判定在**落库之后**扫描全部本地 shot 行，用统一的归一化毫秒时间戳比较，避免 API 原始秒 vs 本地毫秒错序；
   - **seed 规则（机器权威版）**：对每个 `SYNCED` profile，取「按 name 匹配的最新一条 shot」的内嵌相位，**只要与库内 `phasesJson` 不同即覆盖**（本地编辑已停用，无需保护；相同则跳过避免写抖动）。这保证本地镜像持续收敛到主控板配方——例如用户在机器自带 webui 改配方后拉一杯新 shot，下次同步即更新。`LOCAL_ONLY`（导入/示例，非机器镜像）不触碰。
   - 这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威来源。
-- 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，把 WS `g_prof` 的 `FLAT` 实时值叠加到 shot 来源的 curve 类型上（按 phase 序）。**离线时详情/图表直接读本地 `phasesJson`**——该字段现在由 `syncShots` 写入真实 `EASE_*` curve（见上文），因此离线也能呈现缓动曲线，不依赖联网叠加。
+- 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，WS `d_prof`/`d_act_prof` **已携带真实 `EASE_*` curve**（首选直接用），shot 来源仅作离线回退/FLAT 时的叠加。**离线时详情/图表直接读本地 `phasesJson`**——该字段由 `syncShots` seed 写入真实 `EASE_*` curve，并可由详情页 `mirrorProfilePhases` 在空白时补全（见 §6.4），因此离线也能呈现缓动曲线。
 
 ### 6.8 SettingsRepository
 
@@ -660,12 +662,12 @@ MainActivity.onCreate()
         → ① resolveShotPhases(id, name)                   // 离线可用: 本地「profile 名(或 id) 匹配的最近 shot」的 embedded_phases
              → LocalDataRepository.getLatestShotByProfileName/Id(name)
              → ShotEntity.embeddedPhasesJson → List<BrewPhase> (含真实 EASE_* curve)
-        → ② session.requestProfilePhases(id, name)        // WS: 发 g_prof(id)，await d_prof 取实时值 (curve 恒 FLAT)
+        → ② session.requestProfilePhases(id, name)        // WS: 先 selectProfile(id) 设为活跃, 再发 g_prof(id), await d_prof 取实时值 (已含真实 EASE_* curve)
              → sendGetProfile(id) 发送二进制帧 (field1 = profileId)
              → 机器回 d_prof / d_act_prof (protobuf)
              → ProtoDecoder.parseProfilePhases() → ActiveProfileMsg(name, phases: List<BrewPhase>)
              → 完成 pendingProfileDeferreds[name] 的 CompletableDeferred → requestProfilePhases 返回 phases
-        → ③ 若 WS 与 shot 来源 phase 数一致 → 按序叠加 shot 的 curve 类型到 WS 实时值上; 否则回退 shot 来源; 再否则回退 WS
+        → ③ 选择逻辑: WS 含真实 curve → 直接用 WS; WS 为 FLAT 且 shot 源有真实 curve 且 phase 数一致 → 按序叠加 shot curve 到 WS 值上; 否则优先 shot 源; 再否则回退 WS
   → chartPhases = fetchedPhases ?: phasesFromJson(本地库 phasesJson)
   → CurveChart.generateProfileChartPoints(chartPhases) 绘制设定曲线
 ```

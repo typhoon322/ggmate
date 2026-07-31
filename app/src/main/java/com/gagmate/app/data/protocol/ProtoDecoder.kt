@@ -3,6 +3,7 @@ package com.gagmate.app.data.protocol
 import java.nio.ByteOrder
 
 import com.gagmate.app.data.model.ProfileRef
+import com.gagmate.app.data.model.estimateVolumeDrivenTimes
 
 /**
  * Decoded data types from Gaggiuino v3 protobuf responses.
@@ -315,8 +316,19 @@ private fun decodePhaseInfo(data: ByteArray, phaseIndex: Int): PhaseInfo {
     return PhaseInfo(displayName, type, start, end, timeMs, variation)
 }
 
-/** Parse all phases from a d_prof/d_act_prof profile payload into BrewPhase list. */
-fun parseProfilePhases(payload: ByteArray): List<com.gagmate.app.data.model.BrewPhase> {
+/**
+ * Parse all phases from a d_prof/d_act_prof profile payload into BrewPhase list.
+ *
+ * Unlike the REST/shot path, the protobuf phase carries a real curve enum
+ * (sub-field 3 → EASE_IN/EASE_OUT/…) so the curves are genuine, not FLAT. Phases
+ * that stop on the global volume limit carry `time = 0`; [globalVolumeMl] (the
+ * profile's global stop weight, grams ≈ ml) lets us estimate their duration from
+ * the flow rate, exactly like the shot-embedded path.
+ */
+fun parseProfilePhases(
+    payload: ByteArray,
+    globalVolumeMl: Float? = null
+): List<com.gagmate.app.data.model.BrewPhase> {
     val result = mutableListOf<com.gagmate.app.data.model.BrewPhase>()
     var offset = 0
     while (offset < payload.size) {
@@ -340,5 +352,5 @@ fun parseProfilePhases(payload: ByteArray): List<com.gagmate.app.data.model.Brew
             }
         }
     }
-    return result
+    return result.estimateVolumeDrivenTimes(globalVolumeMl)
 }

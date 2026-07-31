@@ -440,13 +440,18 @@ is SystemStateMsg -> {
     fun isConnected(): Boolean = connectionState.value == ConnectionState.CONNECTED
 
     /**
-     * Request the CURRENT definition of a profile from the machine over WebSocket
-     * and await the `d_prof`/`d_act_prof` response.
+     * Request the full definition of a profile from the machine over WebSocket
+     * and await the `d_prof`/`d_act_prof` response (which carries the real phase
+     * list, curves, and global stop conditions).
      *
-     * This is the authoritative "now" recipe source on firmwares that do NOT
-     * expose the REST `GET /api/profile/{id}` endpoint. Fire-and-forget is not
-     * enough — the response arrives asynchronously, so we correlate it by the
-     * profile name carried in the protobuf payload.
+     * On Gaggiuino firmware `g_prof` returns only the *currently selected*
+     * profile, so to read an arbitrary profile we first send `c_upd_act_prof_id`
+     * to make it the active one — the machine then pushes its full `d_act_prof`.
+     * We also nudge with `g_prof` for firmwares that honour the id argument.
+     * Either way the response is correlated by the profile name in the payload.
+     *
+     * Selecting a profile is non-destructive (it only loads the recipe; it does
+     * not start a brew), and matches how the official Gaggiuino UI works.
      *
      * @return the phase list, or empty if the machine does not respond in time
      *         or the WebSocket is not connected.
@@ -459,6 +464,9 @@ is SystemStateMsg -> {
         if (!isConnected()) return emptyList()
         val deferred = CompletableDeferred<List<com.gagmate.app.data.model.BrewPhase>>()
         synchronized(pendingProfileDeferreds) { pendingProfileDeferreds[profileName] = deferred }
+        // Make this profile active so the machine pushes its full definition.
+        selectProfile(profileId)
+        // Nudge with an explicit get (harmless; some firmwares answer this directly).
         sendGetProfile(profileId)
         return try {
             withTimeout(timeoutMs) { deferred.await() }
