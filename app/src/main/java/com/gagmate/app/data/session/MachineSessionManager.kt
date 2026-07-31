@@ -478,6 +478,17 @@ is SystemStateMsg -> {
         return try {
             withTimeout(timeoutMs) { deferred.await() }
         } catch (_: TimeoutCancellationException) {
+            // Diagnostic (verification aid): if `profileName` is NOT the machine's
+            // currently-active profile, a timeout here confirms this firmware's
+            // `g_prof(id)` only returns the active profile and ignores the id. If a
+            // d_prof/d_act_prof for `profileName` DID arrive, the deferred would have
+            // completed — so a timeout means it did not.
+            if (BuildConfig.DEBUG)
+                Log.w(
+                    "GagMateProfile",
+                    "requestProfilePhases(id=$profileId, name='$profileName'): TIMEOUT after ${timeoutMs}ms — " +
+                        "no d_prof/d_act_prof matched. 若此 name ≠ 当前活跃 profile，则证实本机 g_prof(id) 只回活跃 profile（不按 id 返回）。"
+                )
             emptyList()
         } finally {
             synchronized(pendingProfileDeferreds) {
