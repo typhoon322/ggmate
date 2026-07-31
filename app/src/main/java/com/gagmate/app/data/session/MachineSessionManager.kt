@@ -446,17 +446,21 @@ is SystemStateMsg -> {
      *
      * IMPORTANT — no active-profile push:
      * Opening a profile in GagMate must NOT call `c_upd_act_prof_id` (select
-     * active profile) on the machine. The official Gaggiuino WebUI reads every
-     * profile's complete definition from the REST `GET /api/profiles/all`
-     * payload (which includes `phases` + `globalStopConditions`) and only ever
-     * selects a profile active when the user actually brews / edits — never just
-     * to *view* a curve. GagMate mirrors that REST payload into the local DB
-     * during sync, so the detail screen renders from the DB and this WS call is
-     * only a live enhancement for the *currently active* profile (which `g_prof`
-     * returns directly without any selection).
+     * active profile) on the machine. The user explicitly requires that viewing
+     * a profile never switches the machine's active profile.
      *
-     * @return the phase list, or empty if the machine does not respond in time
-     *         or the WebSocket is not connected.
+     * Known firmware constraint (verified on this device): `g_prof(id)` only
+     * returns the *currently active* profile — it does not return an arbitrary
+     * id. So for a non-active profile this nudge normally yields nothing; the
+     * detail screen then falls back to the locally cached phases
+     * (`ProfileEntity.phasesJson`, seeded from shot-embedded `profile.phases`
+     * during sync). For the active profile the nudge succeeds and we get a live
+     * refresh. We deliberately do NOT select the profile first (that would push
+     * c_upd_act_prof_id and change the machine's active profile).
+     *
+     * @return the phase list, or empty if the machine does not respond in time,
+     *         the WebSocket is not connected, or the profile is not active and
+     *         no cached phases exist.
      */
     suspend fun requestProfilePhases(
         profileId: Int,
@@ -466,10 +470,10 @@ is SystemStateMsg -> {
         if (!isConnected()) return emptyList()
         val deferred = CompletableDeferred<List<com.gagmate.app.data.model.BrewPhase>>()
         synchronized(pendingProfileDeferreds) { pendingProfileDeferreds[profileName] = deferred }
-        // Nudge with an explicit get. On this firmware `g_prof(id)` answers only
-        // for the active profile; for non-active profiles the local DB (mirrored
-        // from /api/profiles/all) is the source of truth. We deliberately do NOT
-        // push c_upd_act_prof_id here.
+        // Nudge with an explicit get. On this firmware `g_prof(id)` only returns
+        // the currently-active profile, so for a non-active profile this usually
+        // yields nothing — the detail screen falls back to cached phases. We do
+        // NOT push c_upd_act_prof_id here (no active-profile switch on view).
         sendGetProfile(profileId)
         return try {
             withTimeout(timeoutMs) { deferred.await() }

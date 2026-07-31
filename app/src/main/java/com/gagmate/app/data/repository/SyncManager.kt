@@ -115,17 +115,19 @@ class SyncManager(
             val local = localProfiles[mId]
 
             if (local == null) {
-                // The Gen3 /api/profiles/all response carries the FULL profile
-                // (phases + globalStopConditions). Mirror it straight in so the
-                // detail screen can show real curves without ever selecting the
-                // profile active on the machine.
+                // The Gen3 /api/profiles/all response carries ONLY id/name/selected
+                // — no phase data (verified against a real machine response). So we
+                // create the mirror row with an empty phasesJson and let
+                // [seedProfilePhasesFromShots] (shot-embedded profile.phases) fill it
+                // in later during syncShots. Opening a profile never selects it active,
+                // so we never rely on the machine's g_prof(id) for non-active rows.
                 val saved = ProfileEntity(
                     id = mId,
                     name = mp.name,
                     author = "",
                     notes = "",
                     machineProfileId = mId,
-                    phasesJson = gson.toJson(mp.brewPhases()),
+                    phasesJson = "[]",
                     syncStatus = SyncStatus.SYNCED,
                     localUpdatedAt = System.currentTimeMillis(),
                     createdAt = System.currentTimeMillis()
@@ -135,20 +137,16 @@ class SyncManager(
                 localRepo.saveProfile(saved)
                 profilesAdded++
             } else {
-                // Machine is the single source of truth. For a machine-mirror row
-                // we overwrite phasesJson with the profile list's FULL phase data
-                // (the Gen3 /api/profiles/all payload now carries it). Any local
-                // MODIFIED/CONFLICT state is discarded and its phases wiped so it
-                // can be re-seeded. If this firmware build happens not to include
-                // phases in the list payload we keep the existing phasesJson
-                // untouched and let [seedProfilePhasesFromShots] backfill.
+                // Machine is the single source of truth for id/name/selected. The
+                // phase data is NOT in this payload; it is populated separately by
+                // [seedProfilePhasesFromShots] from shot-embedded profiles (the only
+                // side-effect-free source). So we preserve the existing phasesJson
+                // here and discard any local MODIFIED/CONFLICT edits (machine wins).
                 val wasLocallyEdited = local.syncStatus == SyncStatus.MODIFIED ||
                     local.syncStatus == SyncStatus.CONFLICT
                 if (wasLocallyEdited && BuildConfig.DEBUG)
                     Log.d("GagMateProfile", "fullSync: DISCARDED local edits for id=$mId name='${mp.name}' (machine is authoritative)")
-                val newPhasesJson = if (wasLocallyEdited) "[]"
-                    else if (mp.phases.isNotEmpty()) gson.toJson(mp.brewPhases())
-                    else local.phasesJson
+                val newPhasesJson = if (wasLocallyEdited) "[]" else local.phasesJson
                 val saved = local.copy(
                     name = mp.name,
                     machineProfileId = mId,
@@ -358,9 +356,10 @@ class SyncManager(
         if (latestPhasesByName.isEmpty()) return
         localRepo.getAllProfiles().forEach { profile ->
             if (profile.syncStatus != SyncStatus.SYNCED) return@forEach
-            // The /api/profiles/all payload already supplies the authoritative full
-            // phases; only backfill profiles that still have none so we never
-            // clobber the list-sourced data with a (possibly older) shot snapshot.
+            // The /api/profiles/all payload does NOT carry phases on this firmware
+            // (it returns only id/name/selected), so the only side-effect-free
+            // source is the shot-embedded profile. Backfill profiles that still
+            // have no phases; never clobber data we already have.
             if (profile.phasesJson.isNotBlank() && profile.phasesJson != "[]" && profile.phasesJson != "null") return@forEach
             val match = latestPhasesByName[profile.name] ?: return@forEach
             if (match.second.isEmpty()) return@forEach

@@ -44,29 +44,31 @@ data class ShotRecord(
 /**
  * Response from GET /api/profiles/all.
  *
- * On Gaggiuino Gen3 firmware this endpoint returns the FULL profile, including
- * its `phases` (in the same shape as [PhaseV3]) and `globalStopConditions`.
- * That is how the official WebUI obtains every profile's complete definition in
- * a single request and shows a profile's curve without ever pushing
- * `c_upd_act_prof_id` (selecting the active profile is reserved for brewing /
- * editing, not for viewing). We mirror these phases straight into the local DB
- * during sync so the detail screen can render them with no active-profile push.
+ * On Gaggiuino Gen3 firmware this endpoint returns ONLY the profile references —
+ * `id`, `name`, and `selected` — and NOT the phase definitions. Confirmed from a
+ * real machine response:
+ *   [{"id":8,"name":"Light Template","selected":"false"}, ... ,
+ *    {"id":33,"name":"turbo shot","selected":"true"}]
+ * There are no `phases` / `globalStopConditions` fields in this payload.
+ *
+ * Where the actual phase/curve data comes from:
+ *   - WebSocket `d_prof`/`d_act_prof` carries the full, live definition — but on
+ *     this firmware `g_prof(id)` only returns the *currently active* profile,
+ *     never an arbitrary id.
+ *   - A shot-embedded `profile.phases` (persisted from `GET /api/shots/{id}` into
+ *     `ShotEntity.embeddedPhasesJson` during sync) is the only *side-effect-free*
+ *     offline source, so the detail screen falls back to it for non-active rows.
  *
  * The WebSocket `d_prof_dict` also decodes into [ProfileRef] (see
- * [com.gagmate.app.data.protocol.parseProfileDict]); for that path `phases`
- * simply stays empty — only the REST list carries them.
+ * [com.gagmate.app.data.protocol.parseProfileDict]); for that path `selected`
+ * marks the active profile.
  */
 data class ProfileRef(
     val id: Int = 0,
     val name: String = "",
-    @SerializedName("selected") val selected: String = "false",
-    @SerializedName("phases") val phases: List<PhaseV3> = emptyList(),
-    @SerializedName("globalStopConditions") val globalStopConditions: GlobalStopConditions? = null
+    @SerializedName("selected") val selected: String = "false"
 ) {
     val isSelected: Boolean get() = selected == "true"
-
-    /** Full phase list as [BrewPhase]s, with flow-driven durations estimated. */
-    fun brewPhases(): List<BrewPhase> = phases.toBrewPhases(globalStopConditions)
 }
 
 /**

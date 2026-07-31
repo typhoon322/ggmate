@@ -97,7 +97,7 @@
 **功能**:
 - 机器状态栏 (状态指示灯 + 连接状态 + 当前 profile 名)
 - **机器读数仪表 (已置顶)**: 仅保留当前机器 **温度** 与 **压力** 两个仪表 (原置底的 蒸汽温度/泵流速仪表已移除, 因其值为硬编码 0)
-- "当前曲线" 卡片 (`ProfileGlobalsCard`): 绘制**当前激活 profile** 的设定曲线. 数据源: `machineRepo.fetchProfilePhases(selectedProfileId, selectedProfileName)` — **首选本地 `phasesJson`**（同步期 `GET /api/profiles/all` 已把每个 profile 的完整 `phases`+`globalStopConditions` 全量镜像进 `ProfileEntity.phasesJson`，含真实 `EASE_*` 相位，零副作用、不切活跃，见 §3.4a/§6.3）。该卡片画的就是激活曲线，故若本地 `phasesJson` 为空且已连接，`requestProfilePhases` 也能经 WS `g_prof`→`d_prof`/`d_act_prof` 取**实时值且 protobuf 携带真实 curve 枚举**（见 §3.4）；REST `GET /api/profile/{id}` 在本机固件返回 SPA HTML (dead)，不作来源。会话 `_selectedProfileId` 来自 `d_prof_dict` 选中项.
+- "当前曲线" 卡片 (`ProfileGlobalsCard`): 绘制**当前激活 profile** 的设定曲线. 数据源: `machineRepo.fetchProfilePhases(selectedProfileId, selectedProfileName)` — **首选本地 `phasesJson`**（由同步期 shot 内嵌 `profile.phases` seed 写入；本机固件 `GET /api/profiles/all` 仅返回 id/name/selected，**不含相位**，见 §3.4/§3.4a/§6.3），零副作用、不切活跃。该卡片画的就是激活曲线，故若本地 `phasesJson` 为空且已连接，`requestProfilePhases` 也能经 WS `g_prof`→`d_prof`/`d_act_prof` 取**实时值且 protobuf 携带真实 curve 枚举**（见 §3.4，仅对当前活跃 profile 有效）；REST `GET /api/profile/{id}` 在本机固件返回 SPA HTML (dead)，不作来源。会话 `_selectedProfileId` 来自 `d_prof_dict` 选中项.
 - 机器控制面板:
   - 冲洗按钮 `session.setOpMode(2)` (`MODE_FLUSH`)
   - TARE 按钮 `session.tareScale()` (`c_tare_pend`)
@@ -121,7 +121,7 @@
 - 粘贴 JSON 导入 `PasteJsonDialog`
 - 创建示例曲线
 - 删除/导出曲线
-- 打开详情**优先读本地 `phasesJson`**（`GET /api/profiles/all` 同步期全量镜像，含真实 `EASE_*` 相位），仅在本地为空时才 `fetchProfilePhases(id, name)` 兜底（WS `d_prof`/`d_act_prof` 已含真实 `EASE_*` 曲线，shot 内嵌 profile 仅作离线回退，详见 §3.4 / §3.4a / §6.3），用 `CurveChart` 绘制设定曲线 (含正确缓动). **打开详情绝不 `selectProfile` 切活跃 profile**（零副作用，与官方 WebUI 一致）.
+- 打开详情**优先读本地 `phasesJson`**（本地相位由同步期 shot 内嵌 `profile.phases` seed 而来；本机固件 `GET /api/profiles/all` 仅返回 id/name/selected，不含相位，详见 §3.4 / §3.4a / §6.3），仅在本地为空时才 `fetchProfilePhases(id, name)` 兜底（WS `g_prof`/`d_act_prof` 已含真实 `EASE_*` 曲线，但仅对当前活跃 profile 有效；shot 内嵌 profile 作离线回退），用 `CurveChart` 绘制设定曲线 (含正确缓动). **打开详情绝不 `selectProfile` 切活跃 profile**（零副作用）. **注意：未实际萃取过的非活跃 profile 无本地曲线缓存，详情会空白**.
 
 **Phase 数据类型**:
 - `BrewPhase` — 本地存储格式 (字段: name, type, target, time, condition, next)
@@ -250,7 +250,7 @@ field 3: bytes         → 设置 (maxTime, targetWeight)
 - `type` 大写 `"FLOW"` / `"PRESSURE"`; `curve` 是**字符串** (`FLAT`/`EASE_IN`/`EASE_OUT`/`EASE_IN_OUT`/`FAST_IN`/`FAST_OUT`/`FAST_IN_OUT`).
 - 首阶段 `target` 常**缺 `start`** (从 0 起); `end` 为目标值. `PhaseTarget.start` 为可空 → 缺省按 0.
 - 直接映射到 `PhaseV3` + `PhaseTarget` (字段名一致), `toBrewPhase()` 解析正确. 整段 profile 请用 `List<PhaseV3>.toBrewPhases(globalStopConditions)` 转换（见下方「格式转换」）——它会用全局 `globalStopConditions.weight` 为「按液量/重量停止、无显式 time」的 FLOW 阶段**按流量估算时长**。
-- REST `GET /api/profile/{id}` 在本机固件**已确认返回 SPA index.html（dead）**，不可用作曲线来源。真正的全量曲线来源是 REST `GET /api/profiles/all`——它返回**每个 profile 的完整定义（phases + globalStopConditions）**（官方 Gaggiuino WebUI 即一次性读取此列表绘制所有曲线），`SyncManager.syncProfiles` 已把每个 profile 的完整相位镜像进 `ProfileEntity.phasesJson`（见 §3.4a / §6.3 / §6.7）。WS `g_prof`→`d_prof`/`d_act_prof` 提供**实时值且 protobuf 携带真实 curve 枚举**（sub3 varint → `curveEnumToString` 映射 0–6 到 `FLAT`/`EASE_IN`/…/`FAST_IN_OUT`），是首选权威来源——但本机固件 `g_prof(id)` **只回当前活跃 profile**，故只对激活曲线有效，且**打开详情绝不 `selectProfile` 切活跃**（见 §3.4）。`fetchProfilePhases` 取数策略（见 §6.3）：① **首选本地 `phasesJson`**（来自 `GET /api/profiles/all` 全量镜像，零副作用、不切活跃）；② 仅当本地为空且已连接、且为活跃 profile 时，`requestProfilePhases` 走 WS 实时取；③ 极旧固件不含全量相位时，shot 内嵌 `profile.phases`（落库于 `shot_records.embedded_phases_json`）作离线/兜底来源。phase 持久化主要由 `SyncManager.syncProfiles` 完成，`fetchProfilePhases` 仅在空白时经 `mirrorProfilePhases` 补全（见 §6.4）.
+- REST `GET /api/profile/{id}` 在本机固件**已确认返回 SPA index.html（dead）**，不可用作曲线来源。本机固件 `GET /api/profiles/all` **同样只返回 `[{id,name,selected}]`，不含 `phases`**（实测响应见 §3.4a），因此「全量相位镜像」思路不成立——该端点无法提供曲线。曲线相位真实来源只有两条：(1) 活跃 profile 的 WS `g_prof`→`d_prof`/`d_act_prof` 实时数据（protobuf 携带真实 curve 枚举，sub3 varint → `curveEnumToString` 映射 0–6 到 `FLAT`/`EASE_IN`/…/`FAST_IN_OUT`）；(2) 同步期由 shot 内嵌 `profile.phases`（落库于 `shot_records.embedded_phases_json`）经 `seedProfilePhasesFromShots` 写进 `ProfileEntity.phasesJson`（仅已萃取过的 profile 有）。WS `g_prof(id)` 在本机固件**只回当前活跃 profile**，故实时取数只对激活曲线有效，且**打开详情绝不 `selectProfile` 切活跃**（见 §3.4）。`fetchProfilePhases` 取数策略（见 §6.3）：① **首选本地 `phasesJson`**（由同步期 shot 内嵌相位 seed，零副作用、不切活跃）；② 仅当本地为空且已连接、且为活跃 profile 时，`requestProfilePhases` 走 WS 实时取；③ 否则回退 shot 内嵌 `profile.phases` 作离线/兜底来源。phase 持久化主要由 `seedProfilePhasesFromShots`（同步期）完成，`fetchProfilePhases` 仅在空白时经 `mirrorProfilePhases` 补全（见 §6.4）.
 field 4: float         → 温度设定
 field 5: string        → (空)
 field 6: varint        → 数字
@@ -281,22 +281,26 @@ WS `d_prof`/`d_act_prof` 提供「当前」曲线定义的**完整实时定义**
   4. `withTimeout(timeoutMs)` 等待 deferred; 超时返回空;
   5. `finally` 清理该 name 的 deferred (防泄漏).
 
-  > **不再 `selectProfile`**：打开/查看任意 profile 详情**绝不**调用 `c_upd_act_prof_id` 把机器活跃 profile 切走。完整相位已由同步期 `GET /api/profiles/all` 的「全量 profile（含 `phases`+`globalStopConditions`）」镜像进本地 `phasesJson`（见 §3.4a / §6.3 / §6.7），详情页直接读本地库即可，**零副作用**。这也正是官方 WebUI 的做法——WebUI 只在该 profile 真正用于萃取/编辑时才 `select` 为活跃，纯粹「看曲线」不会切活跃 profile。
+  > **不再 `selectProfile`**：打开/查看任意 profile 详情**绝不**调用 `c_upd_act_prof_id` 把机器活跃 profile 切走。但需注意：本机固件 `GET /api/profiles/all` **只返回 id/name/selected，不含 `phases`**（实测响应见 §3.4a），`g_prof(id)` 也只回当前活跃 profile。因此非活跃 profile 的曲线数据**只能来自本地缓存**——即同步期由 shot 内嵌 `profile.phases` seed 进 `phasesJson`（见 §6.3/§6.7）。**未实际萃取过的 profile 没有本地曲线缓存，打开详情将无数据**（除非它为当前活跃 profile，可走 WS `g_prof` 实时增强）。这是「不切活跃」前提下固件能力的真实边界。
 
 - `ActiveProfileMsg` 处理 (`handleMessage`): phases 非空时 → ① 更新 `_selectedProfilePhases` StateFlow; ② `profileDataReceived.tryEmit(name to phases)`; ③ `pendingProfileDeferreds.remove(name)?.complete(phases)` 完成对应 deferred（exact name 优先；exact 缺失但仅 1 个 pending 时兜底完成，避免 `d_prof` name 缺失时超时取空）.
 
-> **2026-07-31 更正**：此前认为「`g_prof` 只回活跃 profile，故必须 `selectProfile` 才能取任意 profile 相位」——确为事实（本机固件如此），但**正确的解决方式不是切活跃 profile，而是直接从 `GET /api/profiles/all` 全量镜像**。打开详情不再切活跃 profile（用户明确要求）。
+> **2026-07-31 更正（重要）**：此前（§0q）一度靠「先 `selectProfile(id)` 再 `g_prof`」取任意 profile 相位——确为事实（本机固件 `g_prof(id)` 只回活跃 profile）。当时设想的替代方案「直接 `GET /api/profiles/all` 全量镜像」**经实测不成立**：该端点本机固件只返回 `[{id,name,selected}]`，不含 `phases`（见 `gagmate_combined(7).log` 行 234）。故「不切活跃」前提下，非活跃 profile 的曲线只能依赖同步期 shot 内嵌相位缓存（仅已萃取过的 profile 有）。详见 §3.4a（已改为撤回声明的更正）。
 
 **Proactive 预取**: `d_prof_dict` 选中项到达时 (`ProfileDictMsg`), 立即 `sendGetProfile(selected.id)` 预拉取选中 profile 的 phases + 全局设定值, 即使机器从不主动推 `d_act_prof` 也能拿到.
 
-### 3.4a Profile 全量镜像来源 (`GET /api/profiles/all`) — 与官方 WebUI 同源
+### 3.4a ⚠️ 撤回声明的更正：本机固件 `GET /api/profiles/all` **不含**相位
 
-官方 Gaggiuino WebUI 在「Profiles」页面**一次性** `GET /api/profiles/all` 拿到**所有** profile 的**完整定义**（`phases` + `globalStopConditions`），直接在浏览器里绘制每条曲线；它**只在用户真正要萃取/编辑时**才 `select` 某 profile 为活跃，**纯粹「看曲线」不会切活跃 profile**。
+> **本节为对同日早些时候写入内容的撤回。** 此前据第三方 `gaggiuino_api` 库的 schema 推断「`/api/profiles/all` 返回每个 profile 的完整 `phases`+`globalStopConditions`」，并以此把取数逻辑改成「全量 REST 镜像、打开详情不切活跃」。**该推断在用户本机固件上不成立**：实测 `gagmate_combined(7).log` 行 234 的响应为
+> `[{"id":8,"name":"Light Template","selected":"false"}, ... ,{"id":33,"name":"turbo shot","selected":"true"}]`
+> —— 仅 `id` / `name` / `selected`，**无 `phases`**。
 
-GagMate 采用同一机制（机器为唯一权威）：
-- `SyncManager.syncProfiles` 解析该列表每个 `ProfileRef`（含 `phases: List<PhaseV3>` + `globalStopConditions`），经 `ProfileRef.brewPhases()`→`toBrewPhases(global)`→`estimateVolumeDrivenTimes` 转本地 `BrewPhase`，写入 `ProfileEntity.phasesJson`。
-- 详情页 `ProfileDetailScreen` **优先读本地 `phasesJson`**，仅在本地为空时才 `fetchProfilePhases` 兜底，**绝不** `selectProfile` 切活跃。
-- `REST GET /api/profile/{id}` 在本机固件返回 SPA HTML（dead），**不**参与取数；WS `g_prof(id)` 只回当前活跃 profile，仅作活跃曲线的实时增强，不用于查看非活跃曲线。
+**官方 WebUI 的真实机制**：Gen3 手册原文「Available profiles: Tap on a name to select the active profile (a preview of the selected profile is shown)」——即 **WebUI 在「看曲线」时其实会 `select` 该 profile 为活跃**（也正是 §0q 必须用 `selectProfile` 才能取到任意 profile 相位的原因）。WebUI 并没有「只读不切活跃」的取数通道。
+
+**GagMate 当前的真实取数边界（不切活跃前提下）**：
+- 活跃 profile：WS `g_prof`→`d_prof`/`d_act_prof` 实时增强（含真实 `EASE_*` curve）。
+- 非活跃 profile：**只能**用同步期由 shot 内嵌 `profile.phases` seed 进 `ProfileEntity.phasesJson` 的本地缓存；**未实际萃取过的 profile 无本地曲线数据**，打开详情会空白。
+- `REST GET /api/profile/{id}` 在本机固件返回 SPA HTML（dead），不参与取数。
 
 ---
 
@@ -350,7 +354,7 @@ GagMate 采用同一机制（机器为唯一权威）：
 
 | 模型 | 定义位置 | 用途 |
 |------|---------|------|
-| `ProfileRef` | `ShotRecord.kt` | REST `GET /api/profiles/all` 条目；现已含完整 `phases: List<PhaseV3>` 与 `globalStopConditions`（官方 WebUI 的全量数据来源），`ProfileRef.brewPhases()` 经 `toBrewPhases` 转本地相位（见 §3.4a/§6.3/§6.7）；`d_prof_dict` 解码仍复用同一类（其 phases 为空） |
+| `ProfileRef` | `ShotRecord.kt` | REST `GET /api/profiles/all` 条目；**本机固件仅含 `id`/`name`/`selected`（实测不含 `phases`）**；`d_prof_dict` 解码复用同一类（其 `selected` 标记活跃项）。相位数据不由此类承载（见 §3.4/§3.4a/§6.3） |
 | `PhaseV3` | `PhaseModels.kt` | REST/JSON API 曲线阶段格式 (target/stopConditions/type/skip/name/restriction/waterTemperature) |
 | `PhaseTarget` | `PhaseModels.kt` | 阶段目标值 (start?/end/curve:String/time:Int ms) |
 | `PhaseStopConditions` | `PhaseModels.kt` | 阶段停止条件 |
@@ -418,7 +422,7 @@ REST 调用封装:
 - `getProfileDetail(id)` — `GET /api/profile/{id}` → `EmbeddedProfile`. **本机固件已确认返回 SPA HTML（dead）**，调用会失败；保留为通用端点但**不作为曲线来源**（真实 curve 来源见下）.
 - `fetchLatestShotId()`, `fetchShotDetail(id)` — shot 记录内嵌 `profile.phases` (PhaseV3 同 schema). 该内嵌 profile 经 `ShotRecordApi.toShotRecord()` 镜像进 `ShotEntity.embeddedPhasesJson`, 作为 **`fetchProfilePhases` 的离线回退 curve 来源** (按 name 或 `profile.id` 匹配, 离线可用); 联网时优先用 WS `d_prof`/`d_act_prof` (已含真实 `EASE_*` curve, 见 §3.4).
 - `fetchProfilePhases(id, name): List<BrewPhase>` — **联网实时展示取数入口** (不直接落库):
-  1. **首选本地 DB `phasesJson`**：同步期 `GET /api/profiles/all` 已把每个 profile 的完整 `phases`+`globalStopConditions` 镜像进 `ProfileEntity.phasesJson`（经 `ProfileRef.brewPhases()`→`toBrewPhases`→`estimateVolumeDrivenTimes`）。详情页（`ProfileDetailScreen`）**优先**读它，**绝不在查看时切活跃 profile**。
+  1. **首选本地 DB `phasesJson`**：由同步期 `seedProfilePhasesFromShots` 从 shot 内嵌 `profile.phases` 写入（本机固件 `GET /api/profiles/all` 只返回 id/name/selected，**不含相位**，已实测）。仅已萃取过的 profile 有此缓存。详情页（`ProfileDetailScreen`）**优先**读它，**绝不在查看时切活跃 profile**。
   2. **WS 增强（仅活跃 profile）**：仅当本地为空且已连接时，才走 `session.requestProfilePhases(id, name)`——但 `g_prof(id)` 在本机固件只回当前活跃 profile，故此路径**只对当前活跃 profile 有效**，且**不再 `selectProfile`**。
   3. **shot 内嵌兜底**：当本地 `phasesJson` 仍为空（极旧固件不含全量相位），回退到「profile 名/ id 匹配的最近 shot」的 `embedded_phases` (`resolveShotPhases`)。
   落库：同步主路径由 `SyncManager.syncProfiles` 完成（写 `phasesJson`）；`ProfileRepository.mirrorProfilePhases` 仅在 `phasesJson` 空白时补全 (见 §6.4/§6.7).
@@ -462,16 +466,16 @@ REST 调用封装:
 
 - `fullSync()` — 全量同步（单向：机器 → 本地）
 - `syncProfiles()` — 同步曲线列表，**机器数据无条件覆盖本地**：
-  - **全量相位镜像**：`GET /api/profiles/all` 返回的每个 profile 都含完整 `phases`+`globalStopConditions`，直接经 `ProfileRef.brewPhases()`→`toBrewPhases`→`estimateVolumeDrivenTimes` 写入 `ProfileEntity.phasesJson`（机器权威、一次性到位）。新建行写 `phasesJson = gson.toJson(mp.brewPhases())`；已有行：本地曾编辑(`wasLocallyEdited`)则保留空白 `[]`，否则若 REST 含相位则覆盖为机器真实配方，否则保留原 `phasesJson`。
+  - **镜像 id/name/selected**：`GET /api/profiles/all` 在本机固件**只返回 `[{id,name,selected}]`，不含 `phases`**（已实测，见 §3.4a）。因此同步只建/更新镜像行的 id/name/selected，`phasesJson` 初始为 `"[]"`；相位数据**完全由 `seedProfilePhasesFromShots`（shot 内嵌 `profile.phases`）填充**，不来自 REST 列表。新建行写 `phasesJson = "[]"`；已有行：本地曾编辑(`wasLocallyEdited`)则保留空白 `[]`，否则保留原 `phasesJson`（由 seed 写入或为空）。
   - 旧的 `MODIFIED`/`CONFLICT` 状态被**直接丢弃**（本地编辑已停用，无需保护）；不再有冲突/上传分支。
   - **镜像删除**：本地存在但机器列表中已不存在的机器镜像行（`machineProfileId` 非空且非 `LOCAL_ONLY`）会被删除；仅当机器列表**非空**时执行，防止异常空响应清空整个镜像。
-  - 详情页取数现由 `MachineRepository.fetchProfilePhases` **优先读本地 `phasesJson`**（零副作用、不切活跃，见 §3.4/§3.4a/§6.3）；**不再**调用 dead 的 REST `GET /api/profile/{id}`，也**不再**在打开详情时 `selectProfile` 去实时拉 `g_prof`。
+  - 详情页取数现由 `MachineRepository.fetchProfilePhases` **优先读本地 `phasesJson`**（由同步期 shot 内嵌相位 seed，零副作用、不切活跃，见 §3.4/§6.3）；**不再**调用 dead 的 REST `GET /api/profile/{id}`，也**不再**在打开详情时 `selectProfile` 去实时拉 `g_prof`。
 - `uploadPendingProfiles()` — **已停用（no-op）**，返回 `PUSH_DISABLED_MESSAGE` 错误说明；保留方法仅为让"上传待同步"按钮优雅降级。
 - `syncShots()` — 同步萃取记录 (REST → 本地 DB)，并**顺带完成 profile 相位的落库**：
   - 每条拉取的 shot 把其内嵌 `profile`（`EmbeddedProfile.phases`，含真实 `EASE_*` curve 字符串）写入 `ShotEntity.embeddedPhasesJson`（`ShotRecordApi.toShotRecord` 捕获 `profile.id` + `profile.phases`，时间戳统一归一化为 epoch 毫秒）；
   - **v5→v6 兼容回填**：迁移前同步的旧 shot 行 `embedded_phases_json='[]'` 且默认不会被重复拉取——若仍有 `SYNCED` profile 缺可用相位（`anyProfileNeedsSeeding()`），会**重新拉取这些空相位旧行**并 REPLACE upsert 回填；一旦全部 profile 已 seed，此回填自动停止（自限流）；
   - 「最近一条」判定在**落库之后**扫描全部本地 shot 行，用统一的归一化毫秒时间戳比较，避免 API 原始秒 vs 本地毫秒错序；
-  - **seed 规则（机器权威版，仅补缺）**：对每个 `SYNCED` profile，仅当其 `phasesJson` 仍为空（`""`/`"[]"`/`"null"`）时，才取「按 name 匹配的最新一条 shot」的内嵌相位写入（相同则跳过避免写抖动）。这保证在 `syncProfiles` 全量镜像之后，**万一**某 profile 仍缺相位（极旧固件 `GET /api/profiles/all` 不含全量相位）时，由 shot 内嵌相位兜底补全；若 `phasesJson` 已被 REST 列表填充则**不覆盖**（保留更权威的全量数据）。`LOCAL_ONLY`（导入/示例，非机器镜像）不触碰。
+  - **seed 规则（机器权威版，仅补缺）**：对每个 `SYNCED` profile，仅当其 `phasesJson` 仍为空（`""`/`"[]"`/`"null"`）时，才取「按 name 匹配的最新一条 shot」的内嵌相位写入（相同则跳过避免写抖动）。这保证在 `phasesJson` 为空时，由 shot 内嵌相位兜底补全（REST 列表本机固件不含相位，故 `phasesJson` 不会来自 REST）；若 `phasesJson` 已被 seed 填入则**不覆盖**（保留已有数据）。`LOCAL_ONLY`（导入/示例，非机器镜像）不触碰。
   - 这是 profile 详情 / 仪表盘激活曲线**离线可绘制且带缓动**的权威兜底来源。
 - 注意：`MachineRepository.fetchProfilePhases()` 用于**联网时的实时展示**，WS `d_prof`/`d_act_prof` **已携带真实 `EASE_*` curve**（首选直接用），shot 来源仅作离线回退/FLAT 时的叠加。**离线时详情/图表直接读本地 `phasesJson`**——该字段由 `syncShots` seed 写入真实 `EASE_*` curve，并可由详情页 `mirrorProfilePhases` 在空白时补全（见 §6.4），因此离线也能呈现缓动曲线。
 
@@ -582,7 +586,7 @@ Room 数据库, **版本 6**。`fallbackToDestructiveMigration` 仅作兜底，�
 |------|------|
 | `MIGRATION_3_4` | 归一化 `shots.timestamp`：历史行存在"秒 / 毫秒 / 毫秒又被 ×1000"三种混乱单位，迁移时统一 `UPDATE` 为规范的 **epoch 毫秒**。 |
 | `MIGRATION_4_5` | 清除旧版 WS 解码器写入的**损坏 phases_json**：将其 `UPDATE profiles SET phases_json = '[]' WHERE sync_status = 'SYNCED'`，使下次同步能重新取回真实 `EASE_*` 曲线。用户编辑过的 profile（非 SYNCED）不受影响。 |
-| `MIGRATION_5_6` | 为 `shot_records` 增加 `profile_id TEXT`（**可空**，与 `ShotEntity.profileId: String?` 严格一致）与 `embedded_phases_json TEXT NOT NULL DEFAULT '[]'`，把 shot 内嵌 profile 的**真实 curve 来源**持久化，供 `fetchProfilePhases` / `syncShots` 离线兜底使用（REST 详情端点在本机固件为 dead；WS `d_prof`/`d_act_prof` 虽携带真实 `EASE_*` curve 枚举，但本机 `g_prof(id)` 只回活跃 profile，故离线/查看任意非活跃曲线的真实 curve 现主要由 `GET /api/profiles/all` 全量相位镜像 + shot 内嵌相位兜底提供，见 §3.4a/§6.3/§6.7）。⚠️ 教训：迁移 SQL 的可空性/默认值必须与 Entity 声明完全一致，否则 Room 迁移后 schema 校验抛 `Migration didn't properly handle: shot_records`，迁移事务回滚（DB 停留 v5、数据无损），此后**每个触库页面反复闪退**（首版误写 `profile_id NOT NULL DEFAULT ''` 导致历史页与日志导出页闪退）。 |
+| `MIGRATION_5_6` | 为 `shot_records` 增加 `profile_id TEXT`（**可空**，与 `ShotEntity.profileId: String?` 严格一致）与 `embedded_phases_json TEXT NOT NULL DEFAULT '[]'`，把 shot 内嵌 profile 的**真实 curve 来源**持久化，供 `fetchProfilePhases` / `syncShots` 离线兜底使用（REST 详情端点在本机固件为 dead；WS `d_prof`/`d_act_prof` 虽携带真实 `EASE_*` curve 枚举，但本机 `g_prof(id)` 只回活跃 profile，故离线/查看任意非活跃曲线的真实 curve 现**主要由同步期 shot 内嵌 `profile.phases` seed 提供**——本机固件 `GET /api/profiles/all` 仅返回 id/name/selected，不含相位，见 §3.4/§6.3/§6.7）。⚠️ 教训：迁移 SQL 的可空性/默认值必须与 Entity 声明完全一致，否则 Room 迁移后 schema 校验抛 `Migration didn't properly handle: shot_records`，迁移事务回滚（DB 停留 v5、数据无损），此后**每个触库页面反复闪退**（首版误写 `profile_id NOT NULL DEFAULT ''` 导致历史页与日志导出页闪退）。 |
 
 ### 时间戳单位约定 (canonical = epoch ms)
 
@@ -672,7 +676,7 @@ MainActivity.onCreate()
   → LaunchedEffect(machineProfileId, name):
       phasesFromJson = gson.fromJson(profile.phasesJson, ...)   // 本地库 phasesJson
       if (phasesFromJson.isNotEmpty()) {
-          chartPhases = phasesFromJson                            // ① 首选本地: 同步期 GET /api/profiles/all 全量镜像, 含真实 EASE_* curve, 零副作用、不切活跃
+          chartPhases = phasesFromJson                            // ① 首选本地: 同步期 shot 内嵌 profile.phases seed 进 phasesJson（GET /api/profiles/all 本机固件仅返回 id/name/selected，无相位）, 零副作用、不切活跃
       } else {
           fetchedPhases = machineRepo.fetchProfilePhases(id, name) // ② 本地空才走网络兜底
             → 本地仍空且为活跃 profile 时 session.requestProfilePhases(id, name)

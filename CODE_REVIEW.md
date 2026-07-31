@@ -327,7 +327,7 @@
 
 `BUILD SUCCESSFUL`（`assembleDebug` 已验证通过）。
 
-> ⚠️ **历史章节更正**：§0e 的「`g_prof(id)` 按请求 id 精确返回该 profile（已确认）」现已证伪——本机固件 `g_prof` 只回活跃 profile，故 §0e/§0f 依赖「逐条 `g_prof(id)` 回填每条曲线」的方案不成立（这正是 §0q 改走 `selectProfile` 的原因）。§0f 的「WS `d_prof` 根本不携带 curve 类型 / 恒 FLAT」与 §0g/§0j 的同类结论**均已推翻**：WS 实际携带真实 `EASE_*` curve 枚举。这些早期章节保留为当时判断记录，但当前真相以此 §0q、§0r 与 `GAGMATE_REFERENCE.md` §3.4 / §3.4a / §6.3 / §6.4 / §6.7 为准。
+> ⚠️ **历史章节更正**：§0e 的「`g_prof(id)` 按请求 id 精确返回该 profile（已确认）」现已证伪——本机固件 `g_prof` 只回活跃 profile，故 §0e/§0f 依赖「逐条 `g_prof(id)` 回填每条曲线」的方案不成立（这正是 §0q 改走 `selectProfile` 的原因）。§0f 的「WS `d_prof` 根本不携带 curve 类型 / 恒 FLAT」与 §0g/§0j 的同类结论**均已推翻**：WS 实际携带真实 `EASE_*` curve 枚举。这些早期章节保留为当时判断记录，但当前真相以此 §0q、§0r 与 `GAGMATE_REFERENCE.md` §3.4 / §6.3 / §6.4 / §6.7 为准（§3.4a 现已改为撤回声明的更正，非权威来源）。
 
 ### §0r 本轮改动（2026-07-31 晚）：撤回「打开详情自动 selectProfile」+ 研究官方 WebUI 取数机制
 
@@ -336,13 +336,13 @@
 #### ① 撤回 selectProfile 副作用
 - §0q 为修「其他曲线无数据」曾让 `requestProfilePhases` 先 `selectProfile(id)` 设为活跃再 `g_prof`。这带来副作用：打开任意详情会把机器活跃 profile 切走（仪表盘"当前曲线"跟着最后查看的 profile 走），且本机 `g_prof(id)` 仍只回活跃 profile。
 - **修复**：`MachineSessionManager.requestProfilePhases` **移除 `selectProfile` 调用**，仅保留 `sendGetProfile(id)` 作 nudge（只对当前活跃 profile 有效）；`ProfileDetailScreen` 改为**优先读本地 `phasesJson`**，仅在本地为空时才 `fetchProfilePhases` 兜底。`ProfilesViewModel.selectProfile`（用户主动"激活曲线"）→ `activateProfile`→`selectProfile` 属用户显式操作，保留。
-- `GAGMATE_REFERENCE.md` §3.4 已加「不再 selectProfile」说明与「2026-07-31 更正」注；新增 §3.4a「与官方 WebUI 同源」全量镜像小节。
+- `GAGMATE_REFERENCE.md` §3.4 已加「不再 selectProfile」说明与「2026-07-31 更正」注；§3.4a 已改为撤回声明的更正小节（本机固件 `/api/profiles/all` 实测仅返回 id/name/selected，不含相位）。
 
-#### ② 官方 WebUI 取数机制（研究结果）
-- 通过官方 `gaggiuino_api` Python 库（`models.py` / `api.py`）与 Gen3 用户手册确认：**WebUI 在 Profiles 页面一次性 `GET /api/profiles/all`，该端点直接返回每个 profile 的*完整定义*（`phases` + `globalStopConditions`）**，浏览器据此绘制所有曲线。
-- **关键**：WebUI **只在用户真正要萃取/编辑时**才 `select`（tap to select active profile），**纯粹"看曲线"不会切换活跃 profile**。
-- 我们此前对 `/api/profiles/all` 只解析成 `List<ProfileRef>`（仅 id/name/selected），把完整 `phases` 丢掉了——这是"非活跃曲线无数据"的根因之一。`SyncManager.syncProfiles` 现已把 REST 列表的完整 `phases`+`globalStopConditions` 经 `ProfileRef.brewPhases()`→`toBrewPhases`→`estimateVolumeDrivenTimes` 镜像进 `ProfileEntity.phasesJson`，详情页直接读本地库即可，零副作用。
-- 结论：GagMate 现与官方 WebUI 机制一致——全量 REST 镜像为主、查看不切活跃；WS `g_prof` 仅作活跃曲线的实时增强。
+#### ② 官方 WebUI 取数机制（研究结果 — 已更正）
+- **更正**：此前据第三方 `gaggiuino_api` 库的 schema 推断「`/api/profiles/all` 返回每个 profile 的完整 `phases`+`globalStopConditions`」，并以之为「全量 REST 镜像、打开详情不切活跃」的依据。**该推断在用户本机固件上不成立**：实测 `gagmate_combined(7).log` 行 234 的响应为 `[{"id":8,"name":"Light Template","selected":"false"}, ...]`——**仅 `id`/`name`/`selected`，无 `phases`**。
+- **官方 WebUI 真实机制**（Gen3 手册原文 "Tap on a name to select the active profile (a preview of the selected profile is shown)"）：WebUI 在「看曲线」时**会 `select` 该 profile 为活跃**——它并没有「只读不切活跃」的取数通道。这也是 §0q 必须靠 `selectProfile(id)` 才能取到任意 profile 相位的原因。
+- 因此「不切活跃」与「任意 profile 都能看到曲线」在本机固件上**不可兼得**：GagMate 现选择尊重用户「不切活跃」的要求，非活跃 profile 的曲线只能依赖同步期由 shot 内嵌 `profile.phases` seed 的本地缓存（仅已萃取过的 profile 有）；未萃取过的 profile 打开详情将无曲线数据（除非它是当前活跃 profile，可走 WS `g_prof` 实时增强）。
+- `SyncManager.syncProfiles` 现已回退为：REST 列表只建/更新 id/name/selected 镜像行（`phasesJson` 初始 `"[]"`），相位完全由 `seedProfilePhasesFromShots`（shot 内嵌）填充。
 
 `./gradlew :app:assembleDebug --offline` → **BUILD SUCCESSFUL**（本轮仅文档同步；代码改动已于 §0q 当轮验证通过）。
 

@@ -87,9 +87,10 @@ class MachineRepository(
      *   - The WebSocket `d_prof`/`d_act_prof` path (`requestProfilePhases`) is the
      *     authoritative, live source: it carries the REAL phase list with genuine
      *     EASE_* curve enums (decoded in `parseProfilePhases`) AND the global
-     *     stop conditions. We make the requested profile active so the machine
-     *     actually pushes its full definition (otherwise `g_prof` only returns the
-     *     currently-selected profile).
+     *     stop conditions. NOTE: on this firmware `g_prof(id)` only returns the
+     *     currently-selected profile (it does NOT select by id), so this live path
+     *     is effective for the active profile only; non-active profiles rely on the
+     *     shot-embedded cache below.
      *   - A shot-embedded profile (`GET /api/shots/{id}` → `profile.phases`) is a
      *     secondary, offline-capable source persisted by [SyncManager.syncShots].
      *
