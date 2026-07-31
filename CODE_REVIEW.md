@@ -355,6 +355,16 @@
 - 实验两段：TEST1 直接 `g_prof(id)`（无 select）→ 验证能否「不切活跃」显示任意曲线；TEST2 先 `selectProfile` 再 `g_prof` → 验证与 WebUI「tap 即 select 预览」是否一致；结束还原活跃 profile。
 - 用途：把「本机固件 `g_prof(id)` 到底按 id 返回还是只回活跃」这类争论变成**机器实测日志**，取代第三方库 schema 推断。详见 `GAGMATE_REFERENCE.md` 附录 C。
 
+### §0t WebUI 探测：枚举按钮 + 重放未覆盖可读接口（2026-07-31）
+
+- 用户补充：「可以检测 WebUI 里有哪一些按钮，如果之前没覆盖到的情况可以模拟请求拿到数据，设置页的设置除外（不要改设置）」。
+- 已落地：`设置`(debug 专属) → `WebUI 探测` → `运行探测`。`DebugWebUiProbeScreen` 内藏 `fillMaxSize().alpha(0.001f)` 不可见 `WebView` 直接加载机器提供的真实 WebUI SPA；`shouldInterceptRequest` 记录所有 `/api/` 请求（含启动自发调用），`onPageFinished` 注入 `assets/ws_webui_probe.js` 的 `runProbe`：
+  - 枚举每个按钮（只取 label/id/class/section，**绝不 click**），按关键词标记 `isSettings`；
+  - 正则提取 SPA JS bundle 的全部 `/api/...` 端点；
+  - 对每个端点比对 App 已知 `COVERED` 列表，非设置、且未覆盖者 → **模拟一次只读 GET** 截留响应体。
+- **约束已满足**：只发 GET、不 click 按钮、不 POST/PUT；设置类端点仅列不模拟，绝不改动设置。WS 端点仍由 §0s 协议实验工具覆盖。
+- 文件：`DebugWebUiProbeScreen.kt` / `DebugWebUiProbeViewModel.kt` / `WebUiProbeJsBridge.kt` / `assets/ws_webui_probe.js`；导航 `Screen.DebugWebUiProbe`。详见 `GAGMATE_REFERENCE.md` 附录 C.1。
+
 ---
 
 ## 1. 项目架构（整理）

@@ -32,6 +32,7 @@ import com.gagmate.app.ui.profiles.ProfilesScreen
 import com.gagmate.app.ui.profiles.ProfileDetailScreen
 import com.gagmate.app.ui.settings.SettingsScreen
 import com.gagmate.app.ui.debug.DebugWsExperimentScreen
+import com.gagmate.app.ui.debug.DebugWebUiProbeScreen
 import com.gagmate.app.ui.components.DebugOverlay
 import com.gagmate.app.ui.components.ShotChartFullScreen
 import com.gagmate.app.ui.components.WsDataOverlay
@@ -54,6 +55,8 @@ sealed class Screen(
     data object LiveCurve : Screen("livecurve", R.string.dashboard_live_chart, Icons.Default.ShowChart)
     /** Hidden-WebView protocol experiment (debug only, not a bottom-tab destination). */
     data object DebugWsExperiment : Screen("debug_ws_experiment", R.string.debug_ws_experiment, Icons.Default.Settings)
+    /** Hidden-WebView WebUI probe: loads real WebUI, enumerates buttons, replays uncovered read-only APIs (debug only). */
+    data object DebugWebUiProbe : Screen("debug_webui_probe", R.string.debug_webui_probe, Icons.Default.Settings)
 }
 
 private val bottomNavItems = listOf(
@@ -182,11 +185,19 @@ fun AppNavigation() {
                         navController.navigate(Screen.DebugWsExperiment.route) {
                             launchSingleTop = true
                         }
+                    },
+                    onOpenWebUiProbe = {
+                        navController.navigate(Screen.DebugWebUiProbe.route) {
+                            launchSingleTop = true
+                        }
                     }
                 )
             }
             composable(Screen.DebugWsExperiment.route) {
                 DebugWsExperimentScreen(onBack = { navController.popBackStack() })
+            }
+            composable(Screen.DebugWebUiProbe.route) {
+                DebugWebUiProbeScreen(onBack = { navController.popBackStack() })
             }
         }
     }

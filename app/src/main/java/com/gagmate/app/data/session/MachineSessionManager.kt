@@ -444,6 +444,11 @@ is SystemStateMsg -> {
      *  the same way the official WebUI does. */
     val wsUrl: String get() = "ws://$host/ws"
 
+    /** HTTP base URL for the connected machine, e.g. http://192.168.0.186.
+     *  Used by the hidden WebView WebUI-probe harness to load the real WebUI
+     *  SPA (which is served by the machine itself) and replay its API calls. */
+    val httpBaseUrl: String get() = "http://$host"
+
     /**
      * Request the full definition of a profile from the machine over WebSocket
      * and await the `d_prof`/`d_act_prof` response (which carries the real phase

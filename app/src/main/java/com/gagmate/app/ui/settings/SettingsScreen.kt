@@ -37,7 +37,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel(),
     onBack: () -> Unit = {},
-    onOpenDebugExperiment: () -> Unit = {}
+    onOpenDebugExperiment: () -> Unit = {},
+    onOpenWebUiProbe: () -> Unit = {}
 ) {
     val host by viewModel.host.collectAsState()
     val port by viewModel.port.collectAsState()
@@ -450,6 +451,39 @@ fun SettingsScreen(
                         Spacer(Modifier.width(12.dp))
                         Button(onClick = onOpenDebugExperiment) {
                             Text("打开实验")
+                        }
+                    }
+                }
+
+                // Debug-only: hidden WebView WebUI probe
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "WebUI 探测",
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                            Text(
+                                text = "加载真实 WebUI，枚举所有按钮并模拟未覆盖的可读接口（设置类除外）",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Button(onClick = onOpenWebUiProbe) {
+                            Text("打开探测")
                         }
                     }
                 }

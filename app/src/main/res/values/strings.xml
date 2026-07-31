@@ -8,6 +8,7 @@
     <string name="nav_history">History</string>
     <string name="nav_settings">Settings</string>
     <string name="debug_ws_experiment">WebSocket 协议实验</string>
+    <string name="debug_webui_probe">WebUI 探测</string>
 
     <!-- Dashboard -->
     <string name="dashboard_title">GagMate</string>

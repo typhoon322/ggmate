@@ -737,3 +737,23 @@ MainActivity.onCreate()
 
 > 说明：此工具用于协议取证，默认仅在 debug 构建可见；不影响 release。
 
+### C.1 WebUI 探测：枚举按钮 + 重放未覆盖的可读接口（2026-07-31）
+
+**目的**：不止复刻协议，而是**直接加载机器自己提供的真实 WebUI SPA**，坐实「WebUI 里到底有哪些按钮 / 触发哪些接口 / 哪些数据我们 App 还没取」。设置类接口与按钮**只列不点、只列不模拟**（绝不改动设置）。
+
+**入口**：`设置` → （debug 专属）`WebUI 探测` → `运行探测`。
+
+**原理**：
+- `DebugWebUiProbeScreen` 内藏一个 `fillMaxSize().alpha(0.001f)` 的**不可见** `WebView`（全尺寸以保证 SPA 拿到真实视口、DOM 完整），`webViewClient.shouldInterceptRequest` 对**每个含 `/api/` 的请求**记录 `方法 + URL`——这能捕获 WebUI 启动时的自发调用，且不受 JS 注入时机影响。
+- 页面 `onPageFinished` 后，`evaluateJavascript` 把 `assets/ws_webui_probe.js` 注入**已加载的真实 WebUI 上下文**并调用 `runProbe(cfg)`（`cfg.base = http://host`，由 `MachineSessionManager.httpBaseUrl` 提供）。
+- JS 内的 `runProbe`：
+  1. hook `fetch`/`XMLHttpRequest`/`WebSocket`（捕获我们自行触发的调用的响应体）；
+  2. **枚举所有按钮/可点击元素**（只取 `label/id/class/所属 section`，**绝不 click**，零副作用），按 `设置/Calibration/PID/Network…` 关键词标记 `isSettings`；
+  3. 从 `document.scripts` + 主 HTML 抓取 SPA 的 JS bundle，正则提取所有 `/api/...` 端点模板；
+  4. 对每个端点：`isCovered`（与 App 已知 REST 覆盖 `COVERED` 列表比对）/ `isSettings`（路径含 `setting/config/network/wifi/pid/calibrat/…`）判定；**非设置、且 App 未覆盖的端点 → 模拟一次只读 GET** 并截留响应体（至多 ~1.5KB）。
+- 结果经 `WebUiProbeJsBridge`（`log`/`done`）回传 App 内日志面板，并以 JSON `SUMMARY` 给出：按钮数 / 设置类按钮数 / 发现端点数 / 已覆盖数 / 已排除设置数 / 已模拟取回数 / 每条端点的 `template,covered,isSettings,simulated,sample`。
+
+**结论判定**：面板 `SUMMARY.conclusion` 直接说明「发现 N 个 App 未覆盖的可读端点并已取回数据（设置类已排除）」或「App 已覆盖 WebUI 全部数据端点（设置类除外）」。据此即可决定要不要为某个未覆盖端点补取数逻辑。
+
+> 注意：本探测**只读**——只发 GET、不 click 任何按钮、不 POST/PUT 设置；设置类端点仅列不模拟，彻底满足「不要改设置」。WS（`g_prof`/`d_prof`/`c_upd_act_prof_id`）由 §C 的协议实验工具单独覆盖。
+
